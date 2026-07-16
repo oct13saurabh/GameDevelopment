@@ -1,0 +1,39 @@
+{
+  "name": "space-shooter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DemonStar-style vertical shoot-'em-up, Mission 1",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "serve -l 8000 .",
+    "generate-manifest": "node scripts/generate-asset-manifest.js",
+    "electron": "electron .",
+    "build-win": "electron-packager . \"Space Shooter\" --platform=win32 --arch=x64 --out=dist --overwrite --ignore=\"^/dist\" --ignore=\"^/node_modules\""
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2",
+    "serve": "^14.2.1"
+  },
+  "dependencies": {
+    "phaser": "^3.80.1"
+  },
+  "build": {
+    "appId": "com.spaceshooter.game",
+    "productName": "Space Shooter",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "index.html",
+      "electron-main.js",
+      "src/**/*",
+      "GameAssets/**/*",
+      "!node_modules"
+    ],
+    "win": {
+      "target": "dir"
+    }
+  }
+}

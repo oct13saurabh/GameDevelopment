@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="GameAssets/PlayerShip/Falcon_01-1.png" />
+  <title>Space Shooter — Mission 1</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    }
+    /* position:fixed + inset:0 centers against the viewport directly,
+       independent of body/html box sizing -- plain width:100vw/height:100vh
+       on a static/relative element could end up off-center if anything else
+       on the page affects document flow or scrollbar gutter. */
+    #game-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: fixed;
+      inset: 0;
+    }
+    /* Canvas fills 80% of the browser's height, width locked to the game's
+       640:720 aspect ratio so Phaser's FIT scale mode (see main.js) scales
+       it up cleanly without letterboxing distortion. */
+    #game-container canvas {
+      height: min(100vh, calc(100vw * 720 / 640)) !important;
+      width: calc(min(100vh, calc(100vw * 720 / 640)) * 640 / 720) !important;
+    }
+    canvas {
+      /* Ship/enemy/boss art is photoreal, not pixel art -- smooth (default)
+         scaling instead of forcing nearest-neighbor, which reads as blocky
+         once the canvas is stretched up to 80vh (see #game-container canvas
+         above). Phaser's own antialias default (true) already renders
+         sprites smoothly at their native scale; this only controls how the
+         browser then upscales the whole canvas element via CSS. */
+      image-rendering: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container"></div>
+  <script src="src/vendor/phaser.min.js"></script>
+  <script type="module" src="src/main.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('service-worker.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>

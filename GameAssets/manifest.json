@@ -1,0 +1,66 @@
+{
+  "enemyShip": {
+    "RandomShips": {
+      "Default": [
+        "enemy_1_b_l1.png",
+        "enemy_1_b_l2.png",
+        "enemy_1_b_m.png",
+        "enemy_1_b_r1.png",
+        "enemy_1_b_r2.png"
+      ],
+      "Mission 1": [
+        "GE1.png",
+        "GE2.png",
+        "GE3.png"
+      ]
+    },
+    "EnemyPowerUpDrop": {
+      "Default": [
+        "EnemyD1.png",
+        "EnemyD2.png"
+      ],
+      "Mission 1": [
+        "E12.png",
+        "EM0.png",
+        "EM1.png"
+      ]
+    }
+  },
+  "train": [
+    "Train_01.png",
+    "Train_02.png"
+  ],
+  "playerShip": [
+    {
+      "name": "F-35",
+      "idle": "F-35_03-1.png",
+      "move": "F-35_03-2.png"
+    },
+    {
+      "name": "Falcon",
+      "idle": "Falcon_01-1.png",
+      "move": "Falcon_01-2.png"
+    },
+    {
+      "name": "Hunter",
+      "idle": "Hunter_04-1.png",
+      "move": "Hunter_04-2.png"
+    },
+    {
+      "name": "Solaris",
+      "idle": "Solaris_02-1.png",
+      "move": "Solaris_02-2.png"
+    }
+  ],
+  "background": {
+    "Mission 1": [
+      "B-5.png"
+    ],
+    "Mission 2": [
+      "B-2.jpg"
+    ],
+    "Mission 3": [
+      "B-4.jpg"
+    ]
+  }
+}

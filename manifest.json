@@ -1,0 +1,14 @@
+{
+  "name": "Space Shooter",
+  "short_name": "Space Shooter",
+  "description": "DemonStar-style vertical shoot-'em-up",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "portrait",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    { "src": "GameAssets/PlayerShip/Falcon_01-1.png", "sizes": "1024x1536", "type": "image/png", "purpose": "any" }
+  ]
+}
