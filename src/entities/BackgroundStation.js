@@ -11,7 +11,8 @@ export default class BackgroundStation {
 
     this.image = scene.add.image(x, y, textureKey);
     this.image.setDepth(-6);
-    this.image.setAlpha(0.85);
+    this.image.setScale(SPACE_STATIONS.backgroundScale);
+    this.image.setAlpha(SPACE_STATIONS.backgroundAlpha);
 
     this.speed = SPACE_STATIONS.backgroundDriftSpeed;
   }

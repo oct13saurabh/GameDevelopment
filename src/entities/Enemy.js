@@ -1,4 +1,4 @@
-import { ENEMY_TYPES, GAME_HEIGHT } from '../config.js';
+import { ENEMY_TYPES, GAME_HEIGHT, CURRENT_MISSION, ENEMY_ROTATION } from '../config.js';
 
 let idCounter = 0;
 
@@ -22,7 +22,7 @@ export default class Enemy {
   // from GameScene's registry-driven EnemyShip pool (see BootScene). Falls
   // back to the type's configured base texture if no design is supplied
   // (e.g. pool not yet populated with art).
-  constructor(scene, enemyBulletPool, juice, audio, typeKey, x, y, movementPattern = 'straight', spriteGroup = null, design = null) {
+  constructor(scene, enemyBulletPool, juice, audio, typeKey, x, y, movementPattern = 'straight', spriteGroup = null, design = null, missionHp = null) {
     this.id = idCounter++;
     this.scene = scene;
     this.bulletPool = enemyBulletPool;
@@ -32,9 +32,12 @@ export default class Enemy {
     this.cfg = ENEMY_TYPES[typeKey];
     this.design = design;
     this.movementPattern = movementPattern;
+    this.isCarrier = this.cfg.alwaysDropsPowerUp || false;
+    this.rotationConfig = this.getRotationConfig();
+    this.targetRotation = 0;
     this.spawnX = x;
     this.spawnTime = scene.time.now;
-    this.hp = this.cfg.hp;
+    this.hp = missionHp !== null ? missionHp : this.cfg.hp;
     this.alive = true;
     this.lastFired = scene.time.now + Phaser.Math.Between(0, this.cfg.fireRate);
 
@@ -49,7 +52,6 @@ export default class Enemy {
     const targetWidth = REFERENCE_SOURCE_SIZE * this.cfg.scale * SCALE_BOOST;
     this.appliedScale = targetWidth / this.sprite.width;
     this.sprite.setScale(this.appliedScale);
-    this.sprite.setRotation(Math.PI); // ships face "up" by default art; enemies face down
     // Tint is only a fallback for the shared placeholder texture (no custom
     // design available yet) -- real per-design art keeps its own colors.
     if (this.cfg.tint && !design) this.sprite.setTint(this.cfg.tint);
@@ -102,6 +104,13 @@ export default class Enemy {
     }
   }
 
+  getRotationConfig() {
+    if (this.isCarrier) return ENEMY_ROTATION.carrier;
+    if (!this.design || !this.design.sourceFolder) return ENEMY_ROTATION.defaultShip;
+    const isMission = this.design.sourceFolder.startsWith('Mission');
+    return isMission ? ENEMY_ROTATION.missionShip : ENEMY_ROTATION.defaultShip;
+  }
+
   updateBankFrame(vx) {
     if (!this.design || !this.design.banking) return; // static designs don't swap frames
 
@@ -129,18 +138,58 @@ export default class Enemy {
   fire(time) {
     this.lastFired = time;
     const player = this.scene.player;
-    let angleDeg = 90; // straight down by default
+    let targetAngleDeg = 90;
+
     if (player && player.alive) {
-      angleDeg = Phaser.Math.RadToDeg(
+      targetAngleDeg = Phaser.Math.RadToDeg(
         Phaser.Math.Angle.Between(this.sprite.x, this.sprite.y, player.sprite.x, player.sprite.y)
       );
     }
-    this.bulletPool.fire(this.sprite.x, this.sprite.y + 10, angleDeg, this.cfg.bulletSpeed, {
-      texture: 'bullet_enemy',
-      damage: 10,
-      scale: 0.4,
-    });
-    this.audio.enemyShoot();
+
+    const cfg = this.rotationConfig;
+    const clampedAngle = this.clampAngleToRotationLimit(targetAngleDeg, cfg.maxRotationDegFromDown);
+    this.targetRotation = Phaser.Math.DegToRad(clampedAngle - 90);
+
+    if (cfg.tweenDurationMs > 0) {
+      this.scene.tweens.add({
+        targets: this.sprite,
+        rotation: this.targetRotation,
+        duration: cfg.tweenDurationMs,
+        ease: 'Quad.easeOut',
+      });
+    } else {
+      this.sprite.setRotation(this.targetRotation);
+    }
+
+    // Only fire if target is within the fire cone and passes fireChance check.
+    if (this.isAngleWithinCone(targetAngleDeg, cfg.fireConeDegHalf)) {
+      const fireChance = cfg.fireChance !== undefined ? cfg.fireChance : 1.0;
+      if (Math.random() < fireChance) {
+        const bulletTint = this.isCarrier ? 0x00ddff : 0xffffff;
+        this.bulletPool.fire(this.sprite.x, this.sprite.y + 10, clampedAngle, this.cfg.bulletSpeed, {
+          texture: 'bullet_enemy',
+          damage: 10,
+          scale: 0.4,
+          tint: bulletTint,
+        });
+        this.audio.enemyShoot();
+      }
+    }
+  }
+
+  clampAngleToRotationLimit(angleDeg, maxRotationDeg) {
+    if (maxRotationDeg >= 180) return angleDeg; // unrestricted
+    const downDeg = 90;
+    const diff = angleDeg - downDeg;
+    const clamped = Phaser.Math.Clamp(diff, -maxRotationDeg, maxRotationDeg);
+    return downDeg + clamped;
+  }
+
+  isAngleWithinCone(angleDeg, coneHalfDeg) {
+    if (coneHalfDeg >= 180) return true; // unrestricted
+    const downDeg = 90;
+    const diff = Math.abs(angleDeg - downDeg);
+    return diff <= coneHalfDeg;
   }
 
   takeDamage(amount) {

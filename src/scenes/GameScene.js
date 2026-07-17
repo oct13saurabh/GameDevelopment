@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, POWERUP_MISSION_RESTRICTIONS, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, DIFFICULTY, ENEMY_TYPES, CURRENT_MISSION, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, POWERUP_MISSION_RESTRICTIONS, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, DIFFICULTY, ENEMY_TYPES, CURRENT_MISSION, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE, MISSION_SHIPS } from '../config.js';
 import Starfield from '../systems/Starfield.js';
 import Juice from '../systems/Juice.js';
 import WaveManager from '../systems/WaveManager.js';
@@ -332,7 +332,7 @@ export default class GameScene extends Phaser.Scene {
     const spawnOne = () => {
       if (!this.player.alive) return;
       if (this.countActiveWeaponPowerUps() >= SHOOTING_POWERUP.maxOnScreen) return;
-      const powerup = new PowerUp(this, this.audio, this.player.sprite.x, this.player.sprite.y - 60, 'weapon', this.powerupSpriteGroup);
+      const powerup = new PowerUp(this, this.audio, this.player.sprite.x + Phaser.Math.Between(-80, 80), this.player.sprite.y - SHOOTING_POWERUP.spawnOffsetY, 'weapon', this.powerupSpriteGroup);
       this.powerups.push(powerup);
     };
     spawnOne();
@@ -346,7 +346,7 @@ export default class GameScene extends Phaser.Scene {
       this.time.delayedCall(delay, () => {
         if (!this.player.alive) return;
         if (this.countActiveWeaponPowerUps() >= SHOOTING_POWERUP.maxOnScreen) return;
-        const powerup = new PowerUp(this, this.audio, this.player.sprite.x, this.player.sprite.y - 60, 'weapon', this.powerupSpriteGroup);
+        const powerup = new PowerUp(this, this.audio, this.player.sprite.x + Phaser.Math.Between(-80, 80), this.player.sprite.y - SHOOTING_POWERUP.spawnOffsetY, 'weapon', this.powerupSpriteGroup);
         this.powerups.push(powerup);
       });
     };
@@ -586,7 +586,9 @@ export default class GameScene extends Phaser.Scene {
     // a missing texture.
     const pool = (designs[poolKey] && designs[poolKey].length) ? designs[poolKey] : (designs.random || []);
     const design = pool.length ? Phaser.Utils.Array.GetRandom(pool) : null;
-    const enemy = new Enemy(this, this.enemyBullets, this.juice, this.audio, typeKey, x, y, pattern, this.enemySpriteGroup, design);
+    const missionShips = MISSION_SHIPS[`mission${CURRENT_MISSION}`];
+    const missionHp = missionShips && missionShips[typeKey] !== undefined ? missionShips[typeKey] : null;
+    const enemy = new Enemy(this, this.enemyBullets, this.juice, this.audio, typeKey, x, y, pattern, this.enemySpriteGroup, design, missionHp);
     enemy.hp = Math.round(enemy.hp * this.diffCfg.hpMult);
     this.enemies.push(enemy);
     return enemy;
@@ -643,8 +645,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnBoss() {
+    const missionShips = MISSION_SHIPS[`mission${CURRENT_MISSION}`];
+    const missionHp = missionShips && missionShips.boss !== undefined ? missionShips.boss : null;
     this.boss = new Boss(this, this.enemyBullets, this.juice, this.audio, (x, y) =>
-      this.spawnEnemy('fast', x, y, 'straight'), this.bossSpriteGroup
+      this.spawnEnemy('fast', x, y, 'straight'), this.bossSpriteGroup, missionHp
     );
     this.boss.hp = Math.round(this.boss.hp * this.diffCfg.hpMult);
     this.boss.maxHp = Math.round(this.boss.maxHp * this.diffCfg.hpMult);

@@ -2,15 +2,19 @@ import { POWERUP, SHOOTING_POWERUP, ROCKET_POWERUP, SHIELD_POWERUP, GAME_WIDTH, 
 
 // spin/breathe disabled across the board -- power-up icons hold still
 // (no rotation, no pulse), only drift/fall like the other pickups.
+// yellow/blue/red/health/missile/shield/bomb/emp all use large (~1024px)
+// source art -- BootScene.bakeOtherLargeTextures() resamples them down to a
+// crisp 150px-wide texture at load time (fixes NPOT-mipmap blur), so their
+// scale here is tuned against that fixed 150px baseline (0.07/0.05 * 1024/150)
+// instead of the raw source resolution. powerup_life_icon is already small
+// (87px) and isn't baked, so its scale is untouched.
 const TYPE_CONFIG = {
-  weapon: { texture: 'powerup_yellow', scale: 0.07, spin: false, breathe: false }, // texture overridden per-frame for 'weapon'
-  // health/rocket/shield now use large (~1000-1500px) source art, so their
-  // scale is much smaller than the small pre-existing icons (yellow/life).
-  health: { texture: 'powerup_health', scale: 0.05, spin: false, breathe: false },
-  rocket: { texture: 'powerup_missile', scale: 0.05, spin: false, breathe: false },
-  shield: { texture: 'powerup_shield_icon', scale: 0.05, spin: false, breathe: false },
-  bomb: { texture: 'powerup_bomb', scale: 0.05, spin: false, breathe: false },
-  emp: { texture: 'powerup_emp', scale: 0.05, spin: false, breathe: false },
+  weapon: { texture: 'powerup_yellow', scale: 0.478, spin: false, breathe: false }, // texture overridden per-frame for 'weapon'
+  health: { texture: 'powerup_health', scale: 0.341, spin: false, breathe: false },
+  rocket: { texture: 'powerup_missile', scale: 0.341, spin: false, breathe: false },
+  shield: { texture: 'powerup_shield_icon', scale: 0.341, spin: false, breathe: false },
+  bomb: { texture: 'powerup_bomb', scale: 0.341, spin: false, breathe: false },
+  emp: { texture: 'powerup_emp', scale: 0.341, spin: false, breathe: false },
   life: { texture: 'powerup_life_icon', scale: 0.32, spin: false, breathe: false },
 };
 

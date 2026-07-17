@@ -4,15 +4,15 @@ import Enemy from './Enemy.js';
 const ENTRY_Y = 120;
 
 export default class Boss {
-  constructor(scene, enemyBulletPool, juice, audio, spawnMinion, spriteGroup = null) {
+  constructor(scene, enemyBulletPool, juice, audio, spawnMinion, spriteGroup = null, missionHp = null) {
     this.scene = scene;
     this.bulletPool = enemyBulletPool;
     this.juice = juice;
     this.audio = audio;
     this.spawnMinion = spawnMinion;
 
-    this.hp = BOSS.hp;
-    this.maxHp = BOSS.hp;
+    this.hp = missionHp !== null ? missionHp : BOSS.hp;
+    this.maxHp = this.hp;
     this.alive = true;
     this.phase = 1;
     this.entering = true;
@@ -29,7 +29,6 @@ export default class Boss {
     // added, so join the group BEFORE configuring body/velocity, not after.
     if (spriteGroup) spriteGroup.add(this.sprite);
     this.sprite.setScale(BOSS.scale);
-    this.sprite.setRotation(Math.PI);
     // Arcade circle bodies auto-scale with the sprite, so the radius/offset
     // passed to setCircle must be in local (unscaled) units.
     const localRadius = BOSS.hitboxRadius / BOSS.scale;
@@ -88,7 +87,6 @@ export default class Boss {
   // they're a steady trickle, not a burst.
   telegraphThenFire(fireFn) {
     if (!this.alive) return;
-    this.juice.flashSprite(this.sprite, 0xffaa33, BOSS.telegraphMs);
     this.audio.bossTelegraph();
     this.scene.time.delayedCall(BOSS.telegraphMs, () => {
       if (this.alive) fireFn();
@@ -136,7 +134,7 @@ export default class Boss {
       Phaser.Math.Angle.Between(this.sprite.x, this.sprite.y, player.sprite.x, player.sprite.y)
     );
     this.bulletPool.fire(this.sprite.x, this.sprite.y + 20, angleDeg, BOSS.bulletSpeed + 60, {
-      texture: 'bullet_enemy', damage: 15, scale: 0.55,
+      texture: 'bullet_enemy', damage: 15, scale: 0.55, tint: 0xff0000,
     });
     this.audio.enemyShoot();
   }
@@ -145,7 +143,7 @@ export default class Boss {
     for (let i = 0; i < count; i++) {
       const angleDeg = (360 / count) * i;
       this.bulletPool.fire(this.sprite.x, this.sprite.y, angleDeg, BOSS.bulletSpeed, {
-        texture: 'bullet_enemy', damage: 10, scale: 0.45,
+        texture: 'bullet_enemy', damage: 10, scale: 0.45, tint: 0xff0000,
       });
     }
     this.audio.enemyShoot();
@@ -157,7 +155,7 @@ export default class Boss {
     for (let i = 0; i < count; i++) {
       const angleDeg = start + (spreadDeg / (count - 1)) * i;
       this.bulletPool.fire(this.sprite.x, this.sprite.y + 20, angleDeg, BOSS.bulletSpeed, {
-        texture: 'bullet_enemy', damage: 10, scale: 0.45,
+        texture: 'bullet_enemy', damage: 10, scale: 0.45, tint: 0xff0000,
       });
     }
     this.audio.enemyShoot();
@@ -181,7 +179,7 @@ export default class Boss {
         const t = steps === 0 ? 0 : step / steps;
         const angleDeg = Phaser.Math.Linear(cfg.angleStart, cfg.angleEnd, t);
         this.bulletPool.fire(this.sprite.x, this.sprite.y + 20, angleDeg, BOSS.bulletSpeed + 40, {
-          texture: 'bullet_enemy', damage: cfg.damage, scale: cfg.scale,
+          texture: 'bullet_enemy', damage: cfg.damage, scale: cfg.scale, tint: 0xff0000,
         });
         step++;
         if (step >= steps) this.laserActive = false;

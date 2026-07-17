@@ -160,11 +160,11 @@ export default class BootScene extends Phaser.Scene {
             const safeName = file.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
             const key = this.enemyStaticKey(cat.key, folder, safeName);
             this.load.image(key, `${base}/${file}`);
-            this.enemyPlan[cat.key].push({ static: key });
+            this.enemyPlan[cat.key].push({ static: key, sourceFolder: folder });
           }
         }
         for (const frames of Object.values(bankingSets)) {
-          this.enemyPlan[cat.key].push({ banking: frames });
+          this.enemyPlan[cat.key].push({ banking: frames, sourceFolder: folder });
         }
       }
     }
@@ -193,6 +193,8 @@ export default class BootScene extends Phaser.Scene {
     }
 
     this.load.once('complete', () => {
+      this.bakePlayerShipTextures();
+      this.bakeOtherLargeTextures();
       this.registry.set('enemyDesigns', this.enemyPlan);
       this.registry.set('availableTrains', this.trainKeys);
       this.registry.set('availableShips', this.shipList);
@@ -200,6 +202,80 @@ export default class BootScene extends Phaser.Scene {
       this.scene.start('MenuScene');
     });
     this.load.start();
+  }
+
+  // Ship art loads as a large 1024x1536 source PNG (see PLAYER.scale comment
+  // in config.js), but every on-screen use (gameplay ship, menu decoration,
+  // ship-select grid) draws it at well under 200px. 1536 isn't a power of
+  // two, so WebGL can't generate mipmaps for it -- without them, the GPU's
+  // live bilinear minification over that large a downscale ratio reads as
+  // soft/blurry (reported: ship-select grid looks pixelated/blurry).
+  // Fix: bake each loaded ship texture down to a fixed crisp size ONCE here,
+  // via a 2D canvas high-quality resample, and replace the texture in-place
+  // under the same key -- every later `add.image(key)` (Player.js,
+  // MenuScene.js, OptionsScene.js) picks up the small, already-sharp texture
+  // instead of live-downscaling the giant original. PLAYER.scale and the
+  // menu/select-screen scale constants are tuned against SHIP_BAKE_W/H (see
+  // their comments) to land on the exact same on-screen sizes as before.
+  bakePlayerShipTextures() {
+    for (const ship of this.shipList) {
+      this.bakeCrisp(`${ship.key}_idle`, 320);
+      this.bakeCrisp(`${ship.key}_move`, 320);
+    }
+  }
+
+  // Same NPOT-mipmap-blur problem as the player ship (see bakePlayerShipTextures
+  // comment) also hits meteors, the train, the boss, and the shooting-power/
+  // health/rocket/shield/bomb/EMP pickups -- all loaded as large ~1024x1536
+  // source art but drawn at a tiny setScale. Bakes each down to a fixed,
+  // crisp target width; bakeCrisp() no-ops if the source is already <= that
+  // width (nothing to gain, and re-upscaling would look worse), so this is
+  // safe to call for every current AND future asset in these categories
+  // regardless of their actual source resolution.
+  // config.js's METEOR_SIZES/SPECIAL_METEOR.scale and BOSS.scale, and
+  // PowerUp.js's POWERUP_VISUAL scale values, are tuned against these same
+  // fixed bake widths (see their comments) -- Train.js needs no matching
+  // config change since TRAIN.scale is already normalized dynamically off
+  // the live sprite.width (see REFERENCE_SOURCE_WIDTH in Train.js).
+  bakeOtherLargeTextures() {
+    ['meteor_1', 'meteor_2', 'meteor_3', 'meteor_4', 'meteor_shooting', 'meteor_freezing']
+      .forEach((key) => this.bakeCrisp(key, 200));
+    this.trainKeys.forEach((key) => this.bakeCrisp(key, 250));
+    this.bakeCrisp('ship_boss', 400);
+    ['powerup_yellow', 'powerup_blue', 'powerup_red', 'powerup_health', 'powerup_missile', 'powerup_shield_icon', 'powerup_bomb', 'powerup_emp']
+      .forEach((key) => this.bakeCrisp(key, 150));
+    // Enemy ship art (RandomShips/EnemyPowerUpDrop, banking + static sets)
+    // never got baked -- same NPOT-mipmap-blur issue as player ship/boss/
+    // meteors above (Enemy.js draws these at a tiny setScale). 128 matches
+    // REFERENCE_SOURCE_SIZE*2 in Enemy.js (64px reference doubled for
+    // headroom against the largest on-screen enemy scale).
+    for (const cat of ENEMY_CATEGORIES) {
+      for (const design of this.enemyPlan[cat.key] || []) {
+        if (design.static) this.bakeCrisp(design.static, 128);
+        if (design.banking) Object.values(design.banking).forEach((key) => this.bakeCrisp(key, 128));
+      }
+    }
+  }
+
+  // Resamples a loaded image texture down to bakeWidth (aspect-preserved)
+  // via a one-time 2D-canvas high-quality draw, then replaces the texture
+  // in-place under the same key -- every `add.image(key)`/`physics.add.image(key)`
+  // called after this (i.e. every scene, since baking runs before MenuScene
+  // starts) picks up the small, sharp texture instead of the giant original.
+  // No-ops if the source is already at or under bakeWidth.
+  bakeCrisp(key, bakeWidth) {
+    const texture = this.textures.get(key);
+    if (!texture || texture.key === '__MISSING') return;
+    const source = texture.getSourceImage();
+    if (source.width <= bakeWidth) return;
+    const bakeHeight = Math.round(bakeWidth * (source.height / source.width));
+    this.textures.remove(key);
+    const canvasTexture = this.textures.createCanvas(key, bakeWidth, bakeHeight);
+    const ctx = canvasTexture.getContext();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(source, 0, 0, bakeWidth, bakeHeight);
+    canvasTexture.refresh();
   }
 
   generateProceduralTextures() {

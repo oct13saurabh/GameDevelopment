@@ -6,6 +6,27 @@ import GameScene from './scenes/GameScene.js';
 import HUDScene from './scenes/HUDScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
 
+// The CSS in index.html stretches the canvas element up to ~100vh via the
+// #game-container canvas width/height rules, independent of the canvas's
+// internal drawing-buffer resolution. If the drawing buffer stays at the
+// logical 640x720 game size, the browser has to upscale it to fill that
+// larger CSS box -- on basically every monitor (worse on HiDPI/Retina where
+// devicePixelRatio > 1) this produces visible blur/blockiness no matter how
+// sharp the source art is.
+//
+// Fix: Phaser's Scale Manager `zoom` option multiplies the canvas's internal
+// drawing-buffer size relative to the *logical* game width/height, without
+// changing the logical/world/camera coordinate space -- GAME_WIDTH/GAME_HEIGHT
+// stay the single source of truth for world bounds, spawn math (GameScene),
+// and HUD layout. Only the render target gets bigger, so the CSS rules above
+// now downscale (crisp) instead of upscale (blurry) a higher-res buffer.
+// (Multiplying the top-level/scale `width`/`height` config directly, instead
+// of using `zoom`, would have been wrong -- GameScene.js hardcodes
+// `physics.world.setBounds(0, 0, GAME_WIDTH, GAME_HEIGHT)` and spawn
+// positions off the raw GAME_WIDTH/GAME_HEIGHT constants, so inflating the
+// actual game size would desync the camera/world from that logic.)
+const RENDER_DPR = window.devicePixelRatio || 1;
+
 const config = {
   type: Phaser.AUTO,
   parent: 'game-container',
@@ -28,11 +49,17 @@ const config = {
   // centers the canvas via flexbox -- Phaser's own CENTER_BOTH computes an
   // inline offset against ITS size calc, which fights the CSS width/height
   // !important overrides in index.html and pushes the canvas off-center.
+  // `zoom` renders the canvas's internal buffer at devicePixelRatio scale
+  // (see comment above) while `width`/`height` keep the logical game/world
+  // size at GAME_WIDTH/GAME_HEIGHT -- fixes pixelation without touching any
+  // coordinate math elsewhere (input, spawn, HUD).
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.NO_CENTER,
     width: GAME_WIDTH,
     height: GAME_HEIGHT,
+    zoom: RENDER_DPR,
+    autoRound: true,
   },
   // Gamepad input defaults off in some Phaser builds unless explicitly
   // requested -- required for PS4/Xbox pad support in Player.js.

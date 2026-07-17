@@ -23,7 +23,13 @@ export const PLAYER = {
   hitInvulnMs: 500,
   bulletSpeed: 560,
   bulletDamage: 10,
-  scale: 0.045, // ship art is a large 1024x1536 source image, shared by all selectable ships
+  // Ship art loads as a large 1024x1536 source image, shared by all
+  // selectable ships, but BootScene.bakePlayerShipTextures() resamples it
+  // down to a crisp 320x480 texture at load time (fixes NPOT-mipmap blur --
+  // see that method's comment). 0.144 = 0.045 * (1024/320), i.e. the same
+  // on-screen size as the original 0.045-against-1024px scale, just applied
+  // to the smaller baked texture.
+  scale: 0.144,
   hitboxRadius: 15, // on-screen pixel radius (converted per-entity to local units)
   tiltMaxDeg: 40, // simulated roll angle when strafing left/right (drives width foreshortening, not rotation)
   tiltLerp: 0.3, // per-frame smoothing toward the target roll
@@ -212,6 +218,24 @@ export const ENEMY_TYPES = {
   },
 };
 
+// Mission-specific HP overrides per ship type. Omit a ship type to use
+// ENEMY_TYPES default. Each mission can override individual ships and the boss.
+export const MISSION_SHIPS = {
+  mission1: {
+    basic: 20,
+    fast: 15,
+    heavy: 60,
+    sniper: 25,
+    swarm: 8,
+    elite: 80,
+    scout: 10,
+    hornet: 12,
+    dragonfly: 18,
+    carrier: 30,
+    boss: 1400,
+  },
+};
+
 export const METEOR = {
   // Slowed down (was 40-110) so meteors linger on screen longer instead of
   // dropping straight through.
@@ -221,16 +245,19 @@ export const METEOR = {
   powerUpChance: 0.16, // reduced from 0.35 -- power-ups should feel earned
 };
 
-// Source art (Meteor_1..4) is a large 1024x1536 image, so scale is small.
-// Each meteor randomly picks one of these 3 sizes -- bigger meteors are
-// tougher (more hp) and rarer (lower weight). hp bumped up across the board
-// so meteors take a few more hits; large's scale was also bumped up.
+// BootScene.bakeOtherLargeTextures() resamples meteor art down to a crisp
+// 200px-wide texture at load time (fixes NPOT-mipmap blur on the large
+// source PNGs -- see that method's comment), so scale here is tuned against
+// that fixed 200px baseline instead of the raw source resolution. Each
+// meteor randomly picks one of these 3 sizes -- bigger meteors are tougher
+// (more hp) and rarer (lower weight). hp bumped up across the board so
+// meteors take a few more hits; large's scale was also bumped up.
 // Largest tier always drops a random power-up on death (see
 // GameScene's 'meteor-destroyed' handler).
 export const METEOR_SIZES = [
-  { key: 'small', scaleMin: 0.035, scaleMax: 0.045, hp: 45, hitboxRadius: 10, weight: 3 },
-  { key: 'medium', scaleMin: 0.05, scaleMax: 0.065, hp: 80, hitboxRadius: 16, weight: 2 },
-  { key: 'large', scaleMin: 0.09, scaleMax: 0.115, hp: 130, hitboxRadius: 28, weight: 1 },
+  { key: 'small', scaleMin: 0.1792, scaleMax: 0.2304, hp: 45, hitboxRadius: 10, weight: 3 },
+  { key: 'medium', scaleMin: 0.256, scaleMax: 0.3328, hp: 80, hitboxRadius: 16, weight: 2 },
+  { key: 'large', scaleMin: 0.4608, scaleMax: 0.5888, hp: 130, hitboxRadius: 28, weight: 1 },
 ];
 
 // Shooting_Meteor / Freezing_Meteor: instead of drifting down from the top,
@@ -243,7 +270,9 @@ export const SPECIAL_METEOR = {
   speedMax: 340,
   intervalMs: 12000,
   spawnChance: 0.6,
-  scale: 0.055,
+  // 0.2816 = 0.055 * (1024/200) -- tuned against BootScene's baked 200px-wide
+  // meteor texture (see METEOR_SIZES comment), same on-screen size as before.
+  scale: 0.2816,
   hp: 25,
   hitboxRadius: 16,
   spawnY: { min: 20, max: 90 }, // top-corner band, not full screen height
@@ -324,6 +353,12 @@ export const SHOOTING_POWERUP = {
   // Minimum center-to-center px kept between two weapon power-ups (see
   // GameScene.separateWeaponPowerUps) so they never visually touch/overlap.
   minSeparationPx: 56,
+  // Vertical offset (px, above the player) used when spawning a respawn/
+  // guaranteed weapon drop directly relative to the player's position (see
+  // GameScene.triggerRespawnWeaponDrops / triggerGuaranteedWeaponDrops).
+  // Needs to be large enough that the power-up doesn't spawn overlapping the
+  // ship and get auto-collected instantly.
+  spawnOffsetY: 220,
 };
 
 // Collecting a shooting power-up while already at WEAPON_MAX_LEVEL detonates
@@ -356,11 +391,41 @@ export const EMP_POWERUP = {
   stunDurationMs: 3000,
 };
 
+// Enemy rotation limits per source folder + carrier status. Controls whether
+// sprite rotates toward player and if firing is restricted to a cone.
+// tweenDurationMs controls rotation smoothness (0 = instant snap).
+export const ENEMY_ROTATION = {
+  // RandomShips from Mission N folder: can rotate ±maxRotationDegFromDown,
+  // only fire if within fireConeDegHalf of target. tweenDurationMs controls
+  // rotation smoothness — increase for slower/smoother, decrease for snappier.
+  missionShip: {
+    maxRotationDegFromDown: 45,
+    fireConeDegHalf: 45,
+    tweenDurationMs: 400,
+  },
+  // RandomShips from Default folder: no rotation, limited cone, chance to not fire.
+  defaultShip: {
+    maxRotationDegFromDown: 0,
+    fireConeDegHalf: 30,
+    tweenDurationMs: 0,
+    fireChance: 0.5, // 50% chance to actually fire when conditions met
+  },
+  // EnemyPowerUpDrop (carrier): can rotate freely, fire in any direction.
+  carrier: {
+    maxRotationDegFromDown: 180,
+    fireConeDegHalf: 180,
+    tweenDurationMs: 400,
+  },
+};
+
 export const BOSS = {
   hp: 1400,
   scoreValue: 5000,
   hitboxRadius: 42,
-  scale: 0.1, // Mission 1 boss art (Boss_Level1) is a large ~1360px source image
+  // 0.384 = 0.1 * (1536/400) -- tuned against BootScene's baked 400px-wide
+  // boss texture (bakeOtherLargeTextures), same on-screen size as before
+  // against the raw ~1536px Mission 1 boss art.
+  scale: 0.384,
   phase2HpFraction: 0.5,
   // Phase 3 (enrage): faster sweep/attacks plus the laser sweep pattern.
   phase3HpFraction: 0.2,
@@ -431,12 +496,11 @@ export const SPACE_STATIONS = {
   driftSpeed: 18,
   spawnIntervalMs: 22000,
   partHp: 30,
-  // Backdrop image spawns once per mission (not repeating) and fully drifts
-  // top-to-bottom before despawning naturally (no hard cutoff -- a forced
-  // mid-screen destroy previously made it look like it vanished). Speed is
-  // tuned so the ~1420px full-screen traverse takes ~25s. Stations and the
-  // backdrop never show at the same time (see GameScene).
-  backgroundDriftSpeed: 60,
+  // Single far-back backdrop layer -- slow drift, small scale, dim, reads as
+  // distant scenery instead of competing with foreground gameplay.
+  backgroundDriftSpeed: 20,
+  backgroundScale: 0.6,
+  backgroundAlpha: 0.5,
   templates: [
     {
       name: 'crossStation',

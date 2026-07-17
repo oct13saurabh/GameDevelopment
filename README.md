@@ -23,6 +23,8 @@ npm start          # serves the project at http://localhost:8000
 
 Each doc reflects the current (Mission 1) implementation and is meant to stay accurate as the source of truth going into Mission 2 — update the relevant doc alongside any gameplay change, don't let them drift.
 
+The player ship roster is manifest-driven (`GameAssets/manifest.json` -> `playerShip`, read by `OptionsScene.js`) and currently lists 5 ships: F-35, Falcon, Hunter, Raptor, Solaris.
+
 ## Project structure
 
 ```

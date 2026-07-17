@@ -47,6 +47,11 @@
       "move": "Hunter_04-2.png"
     },
     {
+      "name": "Raptor",
+      "idle": "Raptor_05-1.png",
+      "move": "Raptor_05-2.png"
+    },
+    {
       "name": "Solaris",
       "idle": "Solaris_02-1.png",
       "move": "Solaris_02-2.png"
