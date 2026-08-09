@@ -276,6 +276,7 @@ export default class Player {
       // pickup detonates a mega blast instead.
       this.bulletColor = color;
       this.scene.triggerMegaBlast(this.sprite.x, this.sprite.y);
+      this.scene.appEvents.emit('weapon-changed', this.weaponLevel, this.bulletColor);
       return;
     }
     if (color === this.bulletColor) {

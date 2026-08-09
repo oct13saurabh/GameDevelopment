@@ -1,4 +1,5 @@
-import { CURRENT_MISSION } from '../config.js';
+import { GAME_HEIGHT } from '../config.js';
+import { getPrefs } from '../systems/PlayerPrefs.js';
 
 // All game art is loaded exclusively from GameAssets/ (never straight from
 // Assets/, which only holds the raw source packs). Paths are resolved
@@ -15,9 +16,11 @@ const ENEMY_CATEGORIES = [
   { key: 'random', folder: 'RandomShips' },
   { key: 'powerUpDrop', folder: 'EnemyPowerUpDrop' },
 ];
-const ENEMY_MISSION_FOLDERS = [`Mission ${CURRENT_MISSION}`, 'Default'];
-const BACKGROUND_MISSION_FOLDERS = [`Mission ${CURRENT_MISSION}`, 'Default'];
-const BOSS_MISSION_FOLDERS = [`Mission ${CURRENT_MISSION}`, 'Default'];
+// Which mission's art loads is picked at runtime (MenuScene's mission
+// selector, persisted via PlayerPrefs), not a fixed constant -- computed
+// fresh each time BootScene runs (it restarts whenever the player switches
+// mission, see MenuScene.selectMission).
+const missionFolders = (missionNumber) => [`Mission ${missionNumber}`, 'Default'];
 const BANKING_SET_RE = /^enemy_(\d+)_b_(m|l1|l2|r1|r2)\.png$/i;
 
 export default class BootScene extends Phaser.Scene {
@@ -30,11 +33,11 @@ export default class BootScene extends Phaser.Scene {
     // once this file's contents are known (see loadManifestDrivenAssets).
     this.load.json('assetManifest', `${ROOT}/manifest.json`);
 
-    // Boss art lives under GameAssets/BossShip/{Mission N|Default}/boss_ship.png
-    // (see BOSS_MISSION_FOLDERS) -- mirrors the enemy/background mission-folder
-    // convention. Falls back to Default if the current mission has no boss art yet.
-    this.load.image('ship_boss', `${ROOT}/BossShip/${BOSS_MISSION_FOLDERS[0]}/boss_ship.png`);
-    this.load.once(`filecomplete-image-ship_boss`, () => { this.bossArtLoaded = true; });
+    // Boss art lives under GameAssets/BossShip/{Mission N|Default}/<any filename>
+    // (see BOSS_MISSION_FOLDERS) -- filename isn't fixed (e.g. boss_ship.png vs
+    // boss_shipM2.png), so it's manifest-driven like enemy/background art; the
+    // actual load happens in loadManifestDrivenAssets() once the manifest JSON
+    // below has arrived.
 
     // Bullets / missiles. bullet_player stays as the enemy-bullet fallback
     // texture; player bullets pick a tier texture (blue/yellow/red) in Player.js.
@@ -43,7 +46,21 @@ export default class BootScene extends Phaser.Scene {
     this.load.image('bullet_player_yellow', `${ROOT}/Bullets/bullet_player_yellow.png`);
     this.load.image('bullet_player_red', `${ROOT}/Bullets/bullet_player_red.png`);
     this.load.image('bullet_enemy', `${ROOT}/Bullets/bullet_enemy.png`);
+    // enemy_bullet_1 = Enemy.js's power-up-dropping "carrier" ship; enemy_bullet_2
+    // = boss attacks across all bossPatterns -- untinted, native art colors.
+    // Both a raw 1024x1024 source, so they need the same bakeCrisp treatment
+    // as mine below (see bakeOtherLargeTextures).
+    this.load.image('enemy_bullet_1', `${ROOT}/Bullets/enemy_bullet_1.png`);
+    this.load.image('enemy_bullet_2', `${ROOT}/Bullets/enemy_bullet_2.png`);
     this.load.image('missile_rocket', `${ROOT}/Bullets/missile_rocket.png`);
+    // Mission 3's Missile Barrage (bossPatterns/EnemyMissile.js) -- also a
+    // raw 1024x1024 source, same bakeCrisp treatment as enemy_bullet_1/2 above.
+    this.load.image('enemy_missile_rocket', `${ROOT}/Bullets/enemy_missile_rocket.png`);
+    this.load.image('mine', `${ROOT}/Bullets/mines.png`);
+
+    // Static main-menu backdrop (MenuScene) -- square source, cropped to
+    // cover the portrait canvas (see MenuScene.create()'s setDisplaySize).
+    this.load.image('menu_background', `${ROOT}/Menu_Background.png`);
 
     // Meteors.
     this.load.image('meteor_1', `${ROOT}/Meteors/Meteor_1.png`);
@@ -105,14 +122,22 @@ export default class BootScene extends Phaser.Scene {
     return `enemystatic_${categoryKey}_${folder.replace(/\s+/g, '')}_${safeName}`;
   }
 
+  // Optional -- set when MenuScene restarts this scene to load a newly
+  // selected mission's art (see MenuScene.selectMission), so the existing
+  // AudioSystem/AudioContext carries through instead of a new one leaking
+  // the old one. Absent on first boot, same fallback MenuScene itself uses.
+  // nextScene/nextSceneData let a caller (e.g. GameOverScene advancing to the
+  // next mission) skip straight into GameScene once loading finishes,
+  // instead of always landing back on MenuScene.
+  init(data) {
+    this.audio = data && data.audio;
+    this.nextScene = (data && data.nextScene) || 'MenuScene';
+    this.nextSceneData = (data && data.nextSceneData) || { audio: this.audio };
+  }
+
   create() {
     this.generateProceduralTextures();
     this.generateExplosionAnimations();
-    if (!this.bossArtLoaded) {
-      // Mission-specific boss folder had no boss_ship.png -- queue the
-      // Default fallback alongside the manifest-driven load pass below.
-      this.load.image('ship_boss', `${ROOT}/BossShip/Default/boss_ship.png`);
-    }
     this.loadManifestDrivenAssets();
   }
 
@@ -134,6 +159,35 @@ export default class BootScene extends Phaser.Scene {
     this.trainKeys = [];
     this.shipList = [];
 
+    const missionNumber = getPrefs(this).missionNumber;
+    const folders = missionFolders(missionNumber);
+
+    // Boss art -- one file per {Mission N|Default} folder, any filename.
+    // Fallback-only (break on first non-empty folder), same as backgroundKeys
+    // below, since only one boss art set is ever active at a time.
+    const bossByFolder = manifest.bossShip || {};
+    // Phaser's loader silently no-ops a load queued under a texture key that
+    // already exists -- 'ship_boss' is intentionally reused across missions
+    // (see bakeCrisp), so without this, switching mission leaves the
+    // previous mission's boss texture in place instead of loading the new one.
+    if (this.textures.exists('ship_boss')) this.textures.remove('ship_boss');
+    for (let i = 1; i <= 5; i++) {
+      if (this.textures.exists(`ship_boss_destroy_${i}`)) this.textures.remove(`ship_boss_destroy_${i}`);
+    }
+    this.bossDestroyFrameCount = 0;
+    for (const folder of folders) {
+      const entry = bossByFolder[folder] || {};
+      const files = entry.art || [];
+      if (!files.length) continue;
+      this.load.image('ship_boss', `${ROOT}/BossShip/${folder}/${files[0]}`);
+      const destroyFiles = entry.destroy || [];
+      destroyFiles.forEach((file, idx) => {
+        this.load.image(`ship_boss_destroy_${idx + 1}`, `${ROOT}/BossShip/${folder}/Destroy/${file}`);
+      });
+      this.bossDestroyFrameCount = destroyFiles.length;
+      break;
+    }
+
     for (const ship of manifest.playerShip || []) {
       const key = this.playerShipKey(ship.name, ship.idle);
       this.load.image(`${key}_idle`, `${ROOT}/PlayerShip/${ship.idle}`);
@@ -143,7 +197,7 @@ export default class BootScene extends Phaser.Scene {
 
     for (const cat of ENEMY_CATEGORIES) {
       const byFolder = (manifest.enemyShip && manifest.enemyShip[cat.folder]) || {};
-      for (const folder of ENEMY_MISSION_FOLDERS) {
+      for (const folder of folders) {
         const files = byFolder[folder] || [];
         const bankingSets = {}; // setIndex -> { m, l1, l2, r1, r2 }
         for (const file of files) {
@@ -169,27 +223,63 @@ export default class BootScene extends Phaser.Scene {
       }
     }
 
-    for (const file of manifest.train || []) {
-      const safeName = file.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+    this.trainDestroyFrameCounts = {};
+    for (const [trainFolder, entry] of Object.entries(manifest.train || {})) {
+      if (!entry || !entry.art) continue;
+      const safeName = entry.art.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
       const key = `train_${safeName}`;
-      this.load.image(key, `${ROOT}/Train/${file}`);
+      this.load.image(key, `${ROOT}/Train/${trainFolder}/${entry.art}`);
       this.trainKeys.push(key);
+      const destroyFiles = entry.destroy || [];
+      destroyFiles.forEach((file, idx) => {
+        this.load.image(`${key}_destroy_${idx + 1}`, `${ROOT}/Train/${trainFolder}/Destroy/${file}`);
+      });
+      this.trainDestroyFrameCounts[key] = destroyFiles.length;
     }
 
     // Mission-wise scrolling backdrop images (see GameAssets/Background/Mission N).
     // File names/counts vary per mission, so they're manifest-driven like the
     // enemy/train art above rather than hardcoded.
-    this.backgroundKeys = [];
+    this.backgroundPlan = [];
     const backgroundByFolder = manifest.background || {};
-    for (const folder of BACKGROUND_MISSION_FOLDERS) {
-      const files = backgroundByFolder[folder] || [];
-      for (const file of files) {
-        const safeName = file.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+    for (const folder of folders) {
+      const entries = backgroundByFolder[folder] || [];
+      for (const entry of entries) {
+        const safeName = entry.file.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
         const key = `bg_${folder.replace(/\s+/g, '')}_${safeName}`;
-        this.load.image(key, `${ROOT}/Background/${folder}/${file}`);
-        this.backgroundKeys.push(key);
+        this.load.image(key, `${ROOT}/Background/${folder}/${entry.file}`);
+        this.backgroundPlan.push({ key, size: entry.size, sourceFolder: folder });
       }
-      if (this.backgroundKeys.length) break;
+      if (this.backgroundPlan.length) break;
+    }
+
+    // Random decorative objects (planets, etc) -- Background/Environment/{Mission N|Default}.
+    // Unlike backdrop images above, Default and the mission folder are pooled
+    // together (additive), not fallback-only, so shared art is always available
+    // alongside mission-specific art. Each entry carries its parsed size.
+    this.environmentPlan = [];
+    const environmentByFolder = (manifest.background && manifest.background.environment) || {};
+    for (const folder of folders) {
+      const entries = environmentByFolder[folder] || [];
+      for (const entry of entries) {
+        const safeName = entry.file.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
+        const key = `env_${folder.replace(/\s+/g, '')}_${safeName}`;
+        this.load.image(key, `${ROOT}/Background/Environment/${folder}/${entry.file}`);
+        this.environmentPlan.push({ key, size: entry.size, sourceFolder: folder });
+      }
+    }
+
+    // Shared BigBlast finisher flipbook and the launch-scene platform art --
+    // both mission-independent, so only load once (guarded against re-running
+    // on a BootScene restart when the player switches mission).
+    const bigBlastFiles = (manifest.animation && manifest.animation.BigBlast) || [];
+    if (!this.textures.exists('bigblast_1')) {
+      bigBlastFiles.forEach((file, idx) => {
+        this.load.image(`bigblast_${idx + 1}`, `${ROOT}/Animation/BigBlast/${file}`);
+      });
+    }
+    if (manifest.platform && !this.textures.exists('platform_01')) {
+      this.load.image('platform_01', `${ROOT}/Platform/${manifest.platform}`);
     }
 
     this.load.once('complete', () => {
@@ -198,8 +288,11 @@ export default class BootScene extends Phaser.Scene {
       this.registry.set('enemyDesigns', this.enemyPlan);
       this.registry.set('availableTrains', this.trainKeys);
       this.registry.set('availableShips', this.shipList);
-      this.registry.set('availableBackgrounds', this.backgroundKeys);
-      this.scene.start('MenuScene');
+      this.registry.set('availableBackgrounds', this.backgroundPlan);
+      this.registry.set('availableEnvironmentObjects', this.environmentPlan);
+      this.registry.set('bossDestroyFrameCount', this.bossDestroyFrameCount);
+      this.registry.set('trainDestroyFrameCounts', this.trainDestroyFrameCounts);
+      this.scene.start(this.nextScene, this.nextSceneData);
     });
     this.load.start();
   }
@@ -242,8 +335,23 @@ export default class BootScene extends Phaser.Scene {
       .forEach((key) => this.bakeCrisp(key, 200));
     this.trainKeys.forEach((key) => this.bakeCrisp(key, 250));
     this.bakeCrisp('ship_boss', 400);
+    for (let i = 1; i <= 5; i++) this.bakeCrisp(`ship_boss_destroy_${i}`, 400);
+    for (const key of this.trainKeys) {
+      for (let i = 1; i <= 5; i++) this.bakeCrisp(`${key}_destroy_${i}`, 250);
+    }
+    for (let i = 1; i <= 5; i++) this.bakeCrisp(`bigblast_${i}`, 300);
     ['powerup_yellow', 'powerup_blue', 'powerup_red', 'powerup_health', 'powerup_missile', 'powerup_shield_icon', 'powerup_bomb', 'powerup_emp']
       .forEach((key) => this.bakeCrisp(key, 150));
+    // Mission 3's Mine Barrage hazard (bossPatterns/Mine.js) -- same
+    // large-source-art issue as the categories above, just added after this
+    // pass and missed: mines.png is a raw 1024x1024 source, so at BOSS.mine's
+    // scale (tuned for a baked ~200px texture, matching the meteor baseline)
+    // it rendered ~2.5x too big on screen.
+    this.bakeCrisp('mine', 200);
+    this.bakeCrisp('menu_background', GAME_HEIGHT);
+    this.bakeCrisp('enemy_bullet_1', 45);
+    this.bakeCrisp('enemy_bullet_2', 45);
+    this.bakeCrisp('enemy_missile_rocket', 100);
     // Enemy ship art (RandomShips/EnemyPowerUpDrop, banking + static sets)
     // never got baked -- same NPOT-mipmap-blur issue as player ship/boss/
     // meteors above (Enemy.js draws these at a tiny setScale). 128 matches
@@ -279,6 +387,10 @@ export default class BootScene extends Phaser.Scene {
   }
 
   generateProceduralTextures() {
+    // Guards against re-running on a BootScene restart (mission switch) --
+    // these are one-time global textures, not mission-specific.
+    if (this.textures.exists('particle_soft')) return;
+
     // Soft round particle for explosions / trails / stars / power-up glow.
     const particleSize = 16;
     const g = this.make.graphics({ x: 0, y: 0, add: false });
@@ -287,11 +399,13 @@ export default class BootScene extends Phaser.Scene {
     g.generateTexture('particle_soft', particleSize, particleSize);
     g.destroy();
 
-    // Tiny hard pixel for starfield dots.
+    // Tiny round dot for starfield stars -- baked at 8px and scaled down by
+    // Starfield's setScale so the circle stays smooth instead of a jagged
+    // 2px square blown up 1-2x on screen.
     const star = this.make.graphics({ x: 0, y: 0, add: false });
     star.fillStyle(0xffffff, 1);
-    star.fillRect(0, 0, 2, 2);
-    star.generateTexture('star_pixel', 2, 2);
+    star.fillCircle(4, 4, 4);
+    star.generateTexture('star_pixel', 8, 8);
     star.destroy();
   }
 
@@ -300,6 +414,7 @@ export default class BootScene extends Phaser.Scene {
   // so no spritesheet/atlas packing is required for these).
   generateExplosionAnimations() {
     const build = (animKey, framePrefix, count, frameRate) => {
+      if (this.anims.exists(animKey)) return;
       const frames = [];
       for (let i = 1; i <= count; i++) {
         frames.push({ key: `${framePrefix}${String(i).padStart(2, '0')}` });

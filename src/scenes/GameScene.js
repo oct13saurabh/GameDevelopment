@@ -1,7 +1,10 @@
-import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, POWERUP_MISSION_RESTRICTIONS, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, DIFFICULTY, ENEMY_TYPES, CURRENT_MISSION, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE, MISSION_SHIPS } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, ENVIRONMENT_OBJECTS, DIFFICULTY, ADAPTIVE, ENEMY_TYPES, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
+import { getMissionConfig } from '../missions/Missions.js';
+import { getPrefs } from '../systems/PlayerPrefs.js';
 import Starfield from '../systems/Starfield.js';
 import Juice from '../systems/Juice.js';
 import WaveManager from '../systems/WaveManager.js';
+import AdaptiveDifficulty from '../systems/AdaptiveDifficulty.js';
 import BulletPool from '../entities/Bullet.js';
 import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
@@ -10,6 +13,7 @@ import Train from '../entities/Train.js';
 import PowerUp from '../entities/PowerUp.js';
 import Boss from '../entities/Boss.js';
 import Missile from '../entities/Missile.js';
+import Mine from '../entities/bossPatterns/Mine.js';
 import SpaceStation from '../entities/SpaceStation.js';
 import BackgroundStation from '../entities/BackgroundStation.js';
 
@@ -20,9 +24,17 @@ export default class GameScene extends Phaser.Scene {
 
   init(data) {
     this.audio = data.audio;
+    // Whichever mission MenuScene's selector last set (see PlayerPrefs) --
+    // BootScene already loaded that mission's art before GameScene starts.
+    this.missionNumber = getPrefs(this).missionNumber;
     this.shipKey = data.shipKey || 'ship_01';
     this.difficulty = data.difficulty || 'easy';
-    this.diffCfg = DIFFICULTY[this.difficulty] || DIFFICULTY.easy;
+    this.isAdaptive = this.difficulty === 'adaptive';
+    // Clone rather than reference DIFFICULTY[key] directly -- adaptive mode
+    // reassigns this.diffCfg wholesale as the tier changes (applyAdaptiveTier),
+    // and mutating the shared config object would corrupt it for later runs.
+    const baseKey = this.isAdaptive ? ADAPTIVE.startTier : this.difficulty;
+    this.diffCfg = { ...(DIFFICULTY[baseKey] || DIFFICULTY.easy) };
     this.inputType = data.inputType || DEFAULT_INPUT_TYPE;
     this.autoFire = data.autoFire !== undefined ? data.autoFire : DEFAULT_AUTO_FIRE;
     // Touch devices have no keyboard/mouse-buttons: drag-to-move reuses the
@@ -33,6 +45,12 @@ export default class GameScene extends Phaser.Scene {
       this.inputType = 'mouse';
       this.autoFire = true;
     }
+    // Set by GameOverScene when advancing to the next mission on a win --
+    // applied onto the fresh Player in create() (see applyCarry) instead of
+    // starting that Player over at defaults. Absent on a fresh game/loss
+    // restart, where starting over is correct.
+    this.carry = data.carry || null;
+    this.carryScore = data.score || 0;
   }
 
   create() {
@@ -74,12 +92,18 @@ export default class GameScene extends Phaser.Scene {
     this.bossSpriteGroup = this.physics.add.group();
     this.playerMissileGroup = this.physics.add.group();
     this.stationSpriteGroup = this.physics.add.group();
+    // Boss-fired destroyable projectiles (currently Mission 3's Mine
+    // Barrage) -- own group so the player can shoot them down and they can
+    // hit the player directly, per-frame update stays owned by whichever
+    // bossPattern instance spawned them, not tracked in a GameScene-level array.
+    this.bossProjectileGroup = this.physics.add.group();
 
     this.player = new Player(this, this.playerBullets, this.juice, this.audio, this.shipKey, {
       inputType: this.inputType,
       autoFire: this.autoFire,
       isTouchDevice: this.isTouchDevice,
     });
+    this.applyCarry();
 
     // Mouse mode hides the OS cursor over the canvas so it doesn't clutter
     // the play field; only Escape brings it back (stays visible after).
@@ -99,7 +123,14 @@ export default class GameScene extends Phaser.Scene {
       spawnBoss: () => this.spawnBoss(),
       getActiveHostileCount: () => this.getActiveHostileCount(),
       meteorCountMult: this.diffCfg.meteorCountMult,
+      missionNumber: this.missionNumber,
     });
+
+    if (this.isAdaptive) {
+      this.adaptiveDifficulty = new AdaptiveDifficulty({ onTierChange: (tierKey) => this.applyAdaptiveTier(tierKey) });
+      this.appEvents.on('weapon-changed', (level, color) => this.adaptiveDifficulty.onWeaponChanged(level, color));
+      this.appEvents.on('player-lives-changed', (lives) => this.adaptiveDifficulty.onLivesChanged(lives));
+    }
 
     this.setupCollisions();
     this.setupEventHandlers();
@@ -113,12 +144,15 @@ export default class GameScene extends Phaser.Scene {
     this.audio.startMusic();
 
     // Decorative background space stations, drifting through periodically.
-    this.time.delayedCall(3000, () => this.spawnSpaceStation());
-    this.stationTimer = this.time.addEvent({
-      delay: SPACE_STATIONS.spawnIntervalMs,
-      loop: true,
-      callback: () => this.spawnSpaceStation(),
-    });
+    // Disabled via SPACE_STATIONS.enabled -- skip the timer outright.
+    if (SPACE_STATIONS.enabled) {
+      this.time.delayedCall(3000, () => this.spawnSpaceStation());
+      this.stationTimer = this.time.addEvent({
+        delay: SPACE_STATIONS.spawnIntervalMs,
+        loop: true,
+        callback: () => this.spawnSpaceStation(),
+      });
+    }
 
     // Mission backdrop image: shows once per mission (not repeating), capped
     // at backgroundMaxDurationMs, and never overlaps with the foreground
@@ -127,11 +161,30 @@ export default class GameScene extends Phaser.Scene {
     this.backgroundActive = false;
     this.time.delayedCall(6000, () => this.trySpawnBackgroundStation());
 
+    // Random decorative environment objects (planets, etc), independent of
+    // the single mission-backdrop above -- spawns repeatedly all mission long.
+    this.environmentObjects = [];
+    this.time.delayedCall(4000, () => this.spawnEnvironmentObject());
+    this.environmentTimer = this.time.addEvent({
+      delay: ENVIRONMENT_OBJECTS.spawnIntervalMs,
+      loop: true,
+      callback: () => this.spawnEnvironmentObject(),
+    });
+
     // Shooting_Meteor / Freezing_Meteor: fast left-right/right-left streaks.
     this.specialMeteorTimer = this.time.addEvent({
       delay: SPECIAL_METEOR.intervalMs,
       loop: true,
       callback: () => this.maybeSpawnSpecialMeteor(),
+    });
+
+    // Rare ambient meteor trickle -- outside the dedicated meteor-shower
+    // event (see WaveManager.triggerMeteorShower), regular meteors should be
+    // an occasional sight, capped at METEOR.ambientMaxOnScreen alive at once.
+    this.meteorTimer = this.time.addEvent({
+      delay: METEOR.ambientSpawnIntervalMs,
+      loop: true,
+      callback: () => this.maybeSpawnAmbientMeteor(),
     });
 
     this.scheduleNextTrain();
@@ -156,6 +209,16 @@ export default class GameScene extends Phaser.Scene {
     this.allowGuaranteedDrops = true;
   }
 
+  // Adaptive mode only (see AdaptiveDifficulty). Swaps diffCfg to the new
+  // tier's real config wholesale -- everything reading this.diffCfg at spawn
+  // time (enemy/meteor/train/boss HP, power-up drop chance, player
+  // damage-taken mult) picks up the change for anything spawned from here on.
+  applyAdaptiveTier(tierKey) {
+    this.diffCfg = { ...DIFFICULTY[tierKey] };
+    this.waveManager.meteorCountMult = this.diffCfg.meteorCountMult;
+    this.appEvents.emit('difficulty-tier-changed', tierKey);
+  }
+
   setupCollisions() {
     // Player bullets vs enemies / meteors / boss.
     this.physics.add.overlap(this.playerBullets.group, this.enemySpriteGroup, (bulletSprite, enemySprite) => {
@@ -172,6 +235,16 @@ export default class GameScene extends Phaser.Scene {
     });
     this.physics.add.overlap(this.playerBullets.group, this.stationSpriteGroup, (bulletSprite, partSprite) => {
       this.onPlayerBulletHit(bulletSprite, partSprite);
+    });
+    // Player bullets vs destroyable boss projectiles (mines).
+    this.physics.add.overlap(this.playerBullets.group, this.bossProjectileGroup, (bulletSprite, projSprite) => {
+      this.onPlayerBulletHitBossProjectile(bulletSprite, projSprite);
+    });
+    // Boss projectiles vs player -- hits directly rather than going through
+    // enemyBullets, since these are standalone entities, not pool bullets.
+    this.physics.add.overlap(this.player.sprite, this.bossProjectileGroup, (playerSprite, projSprite) => {
+      const proj = projSprite.owner;
+      if (proj && proj.alive) proj.hitPlayer();
     });
 
     // Enemy bullets vs the shield boundary -- checked before the ship's own
@@ -249,6 +322,12 @@ export default class GameScene extends Phaser.Scene {
       this.playerBullets.kill(bulletSprite);
     }
     entity.takeDamage(dmg);
+  }
+
+  onPlayerBulletHitBossProjectile(bulletSprite, projSprite) {
+    const proj = projSprite.owner;
+    this.playerBullets.kill(bulletSprite);
+    if (proj && proj.alive) proj.takeDamage(bulletSprite.damage);
   }
 
   onEnemyBulletHitShield(bulletSprite) {
@@ -409,10 +488,8 @@ export default class GameScene extends Phaser.Scene {
   pickPowerUpType() {
     // 'weapon' keeps dropping even once maxed out -- collecting one at max
     // level triggers a mega blast instead of a further level-up.
-    const entries = Object.entries(POWERUP.weights).filter(([type]) => {
-      const missions = POWERUP_MISSION_RESTRICTIONS[type];
-      return !missions || missions.includes(CURRENT_MISSION);
-    });
+    const allowedTypes = getMissionConfig(this.missionNumber).powerUps.allowedTypes;
+    const entries = Object.entries(POWERUP.weights).filter(([type]) => allowedTypes.includes(type));
     const total = entries.reduce((sum, [, w]) => sum + w, 0);
     let r = Math.random() * total;
     for (const [type, w] of entries) {
@@ -517,13 +594,17 @@ export default class GameScene extends Phaser.Scene {
     this.enemyBullets.killAll();
   }
 
+  // During a boss fight, homing missiles should go after the boss -- not
+  // whichever ambient meteor/minion happens to drift closer to the player at
+  // the moment of firing. Falling back to plain nearest-distance there reads
+  // as the rocket power-up "doing nothing": it snipes some barely-visible
+  // trash target near spawn instead of ever visibly striking the boss.
   findNearestHostile(x, y) {
+    if (this.boss && this.boss.alive && this.boss.sprite) return this.boss;
+
     let nearest = null;
     let nearestDist = Infinity;
-    const candidates = this.boss
-      ? [...this.enemies, ...this.meteors, ...this.trains, this.boss]
-      : [...this.enemies, ...this.meteors, ...this.trains];
-    for (const c of candidates) {
+    for (const c of [...this.enemies, ...this.meteors, ...this.trains]) {
       if (!c.alive || !c.sprite) continue;
       const d = Phaser.Math.Distance.Between(x, y, c.sprite.x, c.sprite.y);
       if (d < nearestDist) {
@@ -545,7 +626,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnSpaceStation() {
-    if (this.missionEnded || this.backgroundActive) return;
+    if (!SPACE_STATIONS.enabled || this.missionEnded || this.backgroundActive) return;
     const template = Phaser.Utils.Array.GetRandom(SPACE_STATIONS.templates);
     const x = Phaser.Math.Between(90, GAME_WIDTH - 90);
     const station = new SpaceStation(this, template, x, -220, this.stationSpriteGroup);
@@ -563,21 +644,107 @@ export default class GameScene extends Phaser.Scene {
     this.spawnBackgroundStation();
   }
 
+  // Big/Medium objects (either layer -- mission backdrop or environment
+  // decoration) dominate the screen, so while one is active only Small
+  // objects may spawn; this also caps Big objects to one on screen at a time.
+  activeDecorationSizes() {
+    const sizes = [];
+    for (const s of this.backgroundStations) if (s.alive) sizes.push(s.size);
+    for (const o of this.environmentObjects) if (o.alive) sizes.push(o.size);
+    return sizes;
+  }
+
+  onlySmallAllowed() {
+    return this.activeDecorationSizes().some((size) => size === 'Big' || size === 'Medium');
+  }
+
+  // Stricter than onlySmallAllowed -- a Big object dominates the whole
+  // screen, so nothing else (not even VerySmall) spawns alongside it.
+  bigDecorationActive() {
+    return this.activeDecorationSizes().some((size) => size === 'Big');
+  }
+
   spawnBackgroundStation() {
     if (this.missionEnded) return;
-    const keys = this.registry.get('availableBackgrounds') || [];
-    if (!keys.length) return;
+    const plan = this.registry.get('availableBackgrounds') || [];
+    if (!plan.length) return;
+    const pool = this.onlySmallAllowed() ? plan.filter((e) => e.size === 'Small') : plan;
+    if (!pool.length) return;
     this.backgroundSpawned = true;
     this.backgroundActive = true;
     if (this.stationTimer) this.stationTimer.paused = true;
 
-    const key = Phaser.Utils.Array.GetRandom(keys);
-    const x = Phaser.Math.Between(90, GAME_WIDTH - 90);
-    const station = new BackgroundStation(this, key, x, -300);
+    const entry = Phaser.Utils.Array.GetRandom(pool);
+    const sizeCfg = SPACE_STATIONS.backgroundBySize[entry.size] || SPACE_STATIONS.backgroundBySize.Medium;
+    const station = new BackgroundStation(this, entry.key, GAME_WIDTH / 2, -GAME_HEIGHT / 2, { fullscreen: true, size: entry.size, alpha: sizeCfg.alpha, driftSpeed: sizeCfg.driftSpeed });
     this.backgroundStations.push(station);
   }
 
+  spawnEnvironmentObject() {
+    if (this.missionEnded) return;
+    // A Big object dominates the whole screen -- nothing else spawns
+    // alongside it, not even VerySmall over the mission backdrop.
+    if (this.bigDecorationActive()) return;
+    const chance = getMissionConfig(this.missionNumber).environmentSpawnChance ?? ENVIRONMENT_OBJECTS.defaultSpawnChance;
+    if (Math.random() > chance) return;
+
+    const plan = this.registry.get('availableEnvironmentObjects') || [];
+    if (!plan.length) return;
+
+    // While the mission backdrop image is showing, only VerySmall objects
+    // may spawn (drawn above the backdrop, see its depth override below) --
+    // Big/Medium/Small all sit behind the backdrop and would be invisible/
+    // visually noisy against it, so they're excluded outright rather than
+    // just deprioritized.
+    let pool;
+    if (this.backgroundActive) {
+      pool = plan.filter((e) => e.size === 'VerySmall');
+    } else {
+      const notVerySmall = plan.filter((e) => e.size !== 'VerySmall');
+      pool = this.onlySmallAllowed() ? notVerySmall.filter((e) => e.size === 'Small') : notVerySmall;
+    }
+    if (!pool.length) return;
+
+    // Try a few random spawn spots, picking a fresh candidate (size + x) each
+    // attempt, and skip this cycle entirely if none clears every alive
+    // object's circle -- objects should never visually overlap.
+    const maxAttempts = 6;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const entry = Phaser.Utils.Array.GetRandom(pool);
+      const sizeCfg = ENVIRONMENT_OBJECTS.bySize[entry.size] || ENVIRONMENT_OBJECTS.bySize.Medium;
+      const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
+      const y = -250;
+      const tex = this.textures.get(entry.key);
+      const srcWidth = (tex && tex.key !== '__MISSING') ? tex.getSourceImage().width : 300;
+      const radius = (srcWidth * sizeCfg.scale) / 2;
+
+      const overlaps = this.environmentObjects.some((o) => {
+        if (!o.alive || !o.image) return false;
+        const otherRadius = o.image.displayWidth / 2;
+        const dist = Phaser.Math.Distance.Between(x, y, o.image.x, o.image.y);
+        return dist < radius + otherRadius + ENVIRONMENT_OBJECTS.minSeparationPx;
+      });
+      if (overlaps) continue;
+
+      const object = new BackgroundStation(this, entry.key, x, y, {
+        depth: sizeCfg.depth ?? ENVIRONMENT_OBJECTS.depth,
+        size: entry.size,
+        scale: sizeCfg.scale,
+        alpha: sizeCfg.alpha,
+        driftSpeed: sizeCfg.driftSpeed,
+      });
+      this.environmentObjects.push(object);
+      return;
+    }
+  }
+
   spawnEnemy(typeKey, x, y, pattern) {
+    // During the meteor-shower event, thin regular enemy spawns so meteors
+    // read as the main event instead of just extra clutter on a full wave
+    // (see WaveManager.triggerMeteorShower / meteorShowerConfig.enemyThinning).
+    if (this.waveManager.meteorShowerActive && Math.random() < this.waveManager.meteorShowerConfig.enemyThinning) {
+      return null;
+    }
     const cfg = ENEMY_TYPES[typeKey];
     const poolKey = cfg && cfg.alwaysDropsPowerUp ? 'powerUpDrop' : 'random';
     const designs = this.registry.get('enemyDesigns') || {};
@@ -586,8 +753,8 @@ export default class GameScene extends Phaser.Scene {
     // a missing texture.
     const pool = (designs[poolKey] && designs[poolKey].length) ? designs[poolKey] : (designs.random || []);
     const design = pool.length ? Phaser.Utils.Array.GetRandom(pool) : null;
-    const missionShips = MISSION_SHIPS[`mission${CURRENT_MISSION}`];
-    const missionHp = missionShips && missionShips[typeKey] !== undefined ? missionShips[typeKey] : null;
+    const shipHp = getMissionConfig(this.missionNumber).shipHp;
+    const missionHp = shipHp && shipHp[typeKey] !== undefined ? shipHp[typeKey] : null;
     const enemy = new Enemy(this, this.enemyBullets, this.juice, this.audio, typeKey, x, y, pattern, this.enemySpriteGroup, design, missionHp);
     enemy.hp = Math.round(enemy.hp * this.diffCfg.hpMult);
     this.enemies.push(enemy);
@@ -601,10 +768,40 @@ export default class GameScene extends Phaser.Scene {
     return meteor;
   }
 
+  // Applies weapon level/bombs/EMP/lives/health/score carried over from the
+  // previous mission (see GameScene.onMissionComplete / GameOverScene.restart)
+  // onto the fresh Player this mission just created, instead of leaving it at
+  // construction defaults. No-op on a fresh game or a loss-restart, where
+  // this.carry is null.
+  applyCarry() {
+    if (!this.carry) return;
+    const p = this.player;
+    const c = this.carry;
+    p.weaponLevel = c.weaponLevel;
+    p.bulletColor = c.bulletColor;
+    p.bombCount = c.bombCount;
+    p.empCount = c.empCount;
+    p.lives = c.lives;
+    p.maxHealth = c.maxHealth;
+    p.health = c.health;
+    p.score = this.carryScore;
+  }
+
   spawnCarrier() {
     if (this.missionEnded) return;
     const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
     this.spawnEnemy('carrier', x, -40, 'sine');
+  }
+
+  // Rare background trickle, hard capped -- see METEOR.ambientSpawnChance/
+  // ambientMaxOnScreen in config.js. Skips entirely during the dedicated
+  // meteor-shower event (WaveManager already floods meteors then).
+  maybeSpawnAmbientMeteor() {
+    if (this.missionEnded || this.waveManager.meteorShowerActive) return;
+    if (this.meteors.filter((m) => m.alive).length >= METEOR.ambientMaxOnScreen) return;
+    if (Math.random() > METEOR.ambientSpawnChance) return;
+    const x = Phaser.Math.Between(30, GAME_WIDTH - 30);
+    this.spawnMeteor(x, -40);
   }
 
   maybeSpawnSpecialMeteor() {
@@ -645,10 +842,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnBoss() {
-    const missionShips = MISSION_SHIPS[`mission${CURRENT_MISSION}`];
-    const missionHp = missionShips && missionShips.boss !== undefined ? missionShips.boss : null;
-    this.boss = new Boss(this, this.enemyBullets, this.juice, this.audio, (x, y) =>
-      this.spawnEnemy('fast', x, y, 'straight'), this.bossSpriteGroup, missionHp
+    const shipHp = getMissionConfig(this.missionNumber).shipHp;
+    const missionHp = shipHp && shipHp.boss !== undefined ? shipHp.boss : null;
+    this.boss = new Boss(this, this.enemyBullets, this.juice, this.audio,
+      (x, y) => this.spawnEnemy('fast', x, y, 'straight'),
+      this.bossSpriteGroup, missionHp, this.missionNumber,
+      (x, y) => new Mine(this.boss, x, y, this.bossProjectileGroup)
     );
     this.boss.hp = Math.round(this.boss.hp * this.diffCfg.hpMult);
     this.boss.maxHp = Math.round(this.boss.maxHp * this.diffCfg.hpMult);
@@ -665,9 +864,23 @@ export default class GameScene extends Phaser.Scene {
     this.missionEnded = true;
     this.audio.stopMusic();
     this.audio.missionComplete();
-    this.time.delayedCall(1800, () => {
+    // Boss fires 'boss-killed' the instant hp hits 0, right as its
+    // fallAndBlast animation (Boss.die, ~3400ms + 500ms shake) starts -- wait
+    // for that to finish before cutting to the win screen.
+    this.time.delayedCall(4000, () => {
       this.scene.stop('HUDScene');
-      this.scene.start('GameOverScene', { win: true, score: this.player.score, audio: this.audio, shipKey: this.shipKey, difficulty: this.difficulty, inputType: this.inputType, autoFire: this.autoFire });
+      // Carried into the next mission's Player instead of resetting -- see
+      // GameOverScene.restart (win path) / GameScene.applyCarry.
+      const carry = {
+        weaponLevel: this.player.weaponLevel,
+        bulletColor: this.player.bulletColor,
+        bombCount: this.player.bombCount,
+        empCount: this.player.empCount,
+        lives: this.player.lives,
+        health: this.player.health,
+        maxHealth: this.player.maxHealth,
+      };
+      this.scene.start('GameOverScene', { win: true, score: this.player.score, carry, audio: this.audio, shipKey: this.shipKey, difficulty: this.difficulty, inputType: this.inputType, autoFire: this.autoFire });
     });
   }
 
@@ -705,6 +918,8 @@ export default class GameScene extends Phaser.Scene {
 
     if (this.paused || this.missionEnded) return;
 
+    if (this.isAdaptive) this.adaptiveDifficulty.update(dt, this.player.score);
+
     this.starfield.update(dt);
     this.player.update(time, dt);
 
@@ -716,6 +931,7 @@ export default class GameScene extends Phaser.Scene {
     for (const missile of this.missiles) missile.update(time, dt);
     for (const station of this.spaceStations) station.update(time, dt);
     for (const bg of this.backgroundStations) bg.update(time, dt);
+    for (const obj of this.environmentObjects) obj.update(time, dt);
     if (this.boss) this.boss.update(time, dt);
 
     this.enemies = this.enemies.filter((e) => e.alive);
@@ -725,6 +941,7 @@ export default class GameScene extends Phaser.Scene {
     this.missiles = this.missiles.filter((m) => m.alive);
     this.spaceStations = this.spaceStations.filter((s) => s.alive);
     this.backgroundStations = this.backgroundStations.filter((s) => s.alive);
+    this.environmentObjects = this.environmentObjects.filter((o) => o.alive);
     if (this.backgroundActive && this.backgroundStations.length === 0) {
       this.backgroundActive = false;
       if (this.stationTimer) this.stationTimer.paused = false;

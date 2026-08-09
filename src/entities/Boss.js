@@ -1,28 +1,30 @@
-import { BOSS, GAME_WIDTH } from '../config.js';
-import Enemy from './Enemy.js';
+import { BOSS, GAME_WIDTH, ANIMATION } from '../config.js';
+import { getMissionConfig } from '../missions/Missions.js';
+import { createBossPattern } from './bossPatterns/index.js';
 
 const ENTRY_Y = 120;
 
 export default class Boss {
-  constructor(scene, enemyBulletPool, juice, audio, spawnMinion, spriteGroup = null, missionHp = null) {
+  constructor(scene, enemyBulletPool, juice, audio, spawnMinion, spriteGroup = null, missionHp = null, missionNumber = 1, spawnMine = null) {
     this.scene = scene;
     this.bulletPool = enemyBulletPool;
     this.juice = juice;
     this.audio = audio;
     this.spawnMinion = spawnMinion;
+    this.spawnMine = spawnMine;
 
     this.hp = missionHp !== null ? missionHp : BOSS.hp;
     this.maxHp = this.hp;
     this.alive = true;
+    // Death crumble frames (GameAssets/BossShip/.../Destroy), played in die()
+    // once hp hits 0 -- 0 when this mission's boss has none yet (see
+    // BootScene.bossDestroyFrameCount).
+    this.destroyFrameCount = scene.registry.get('bossDestroyFrameCount') || 0;
     this.phase = 1;
     this.entering = true;
-    this.lastRadialFire = 0;
-    this.lastAimedFire = 0;
-    this.lastSpreadFire = 0;
-    this.lastMinionSpawn = 0;
-    this.lastLaserFire = 0;
     this.telegraphing = false;
-    this.laserActive = false;
+
+    this.pattern = createBossPattern(getMissionConfig(missionNumber).bossPattern, this);
 
     this.sprite = scene.physics.add.image(GAME_WIDTH / 2, -150, 'ship_boss');
     // Physics groups reset velocity to their (zero) defaults when a sprite is
@@ -78,112 +80,18 @@ export default class Boss {
       this.scene.appEvents.emit('boss-phase-changed', this.phase);
     }
 
-    this.handleAttacks(time);
+    this.pattern.update(time);
   }
 
   // Flashes the boss and plays a warning cue, then fires after
-  // BOSS.telegraphMs so radial/spread/laser bursts read as dodgeable
-  // reactions instead of instant damage. Aimed shots stay un-telegraphed --
-  // they're a steady trickle, not a burst.
+  // BOSS.telegraphMs so burst/missile attacks read as dodgeable reactions
+  // instead of instant damage. Aimed shots stay un-telegraphed -- they're a
+  // steady trickle, not a burst. Shared infra, called by pattern modules.
   telegraphThenFire(fireFn) {
     if (!this.alive) return;
     this.audio.bossTelegraph();
     this.scene.time.delayedCall(BOSS.telegraphMs, () => {
       if (this.alive) fireFn();
-    });
-  }
-
-  handleAttacks(time) {
-    // Aimed shot at player, all phases.
-    if (time - this.lastAimedFire > 1400) {
-      this.lastAimedFire = time;
-      this.fireAimed();
-    }
-
-    // Radial burst, all phases (faster each phase).
-    const radialInterval = this.phase === 1 ? 2600 : this.phase === 2 ? 1900 : 1500;
-    if (time - this.lastRadialFire > radialInterval) {
-      this.lastRadialFire = time;
-      this.telegraphThenFire(() => this.fireRadial());
-    }
-
-    if (this.phase >= 2) {
-      if (time - this.lastSpreadFire > 2200) {
-        this.lastSpreadFire = time;
-        this.telegraphThenFire(() => this.fireSpread());
-      }
-      if (time - this.lastMinionSpawn > 8000 && this.spawnMinion) {
-        this.lastMinionSpawn = time;
-        this.spawnMinion(this.sprite.x - 60, this.sprite.y + 40);
-        this.spawnMinion(this.sprite.x + 60, this.sprite.y + 40);
-      }
-    }
-
-    if (this.phase >= 3 && !this.laserActive) {
-      if (time - this.lastLaserFire > BOSS.laser.intervalMs) {
-        this.lastLaserFire = time;
-        this.telegraphThenFire(() => this.fireLaserSweep());
-      }
-    }
-  }
-
-  fireAimed() {
-    const player = this.scene.player;
-    if (!player || !player.alive) return;
-    const angleDeg = Phaser.Math.RadToDeg(
-      Phaser.Math.Angle.Between(this.sprite.x, this.sprite.y, player.sprite.x, player.sprite.y)
-    );
-    this.bulletPool.fire(this.sprite.x, this.sprite.y + 20, angleDeg, BOSS.bulletSpeed + 60, {
-      texture: 'bullet_enemy', damage: 15, scale: 0.55, tint: 0xff0000,
-    });
-    this.audio.enemyShoot();
-  }
-
-  fireRadial(count = 12) {
-    for (let i = 0; i < count; i++) {
-      const angleDeg = (360 / count) * i;
-      this.bulletPool.fire(this.sprite.x, this.sprite.y, angleDeg, BOSS.bulletSpeed, {
-        texture: 'bullet_enemy', damage: 10, scale: 0.45, tint: 0xff0000,
-      });
-    }
-    this.audio.enemyShoot();
-  }
-
-  fireSpread(count = 5, spreadDeg = 50) {
-    const base = 90;
-    const start = base - spreadDeg / 2;
-    for (let i = 0; i < count; i++) {
-      const angleDeg = start + (spreadDeg / (count - 1)) * i;
-      this.bulletPool.fire(this.sprite.x, this.sprite.y + 20, angleDeg, BOSS.bulletSpeed, {
-        texture: 'bullet_enemy', damage: 10, scale: 0.45, tint: 0xff0000,
-      });
-    }
-    this.audio.enemyShoot();
-  }
-
-  // Phase 3 only. Sweeps a rapid stream of bullets across a fixed angle band
-  // over BOSS.laser.durationMs -- reads as a laser beam without needing a
-  // dedicated continuous-hitbox entity, reusing the existing bullet pool.
-  fireLaserSweep() {
-    if (!this.alive) return;
-    const cfg = BOSS.laser;
-    this.laserActive = true;
-    const steps = Math.floor(cfg.durationMs / cfg.tickMs);
-    let step = 0;
-    this.audio.enemyShoot();
-    this._laserTimer = this.scene.time.addEvent({
-      delay: cfg.tickMs,
-      repeat: steps,
-      callback: () => {
-        if (!this.alive) return;
-        const t = steps === 0 ? 0 : step / steps;
-        const angleDeg = Phaser.Math.Linear(cfg.angleStart, cfg.angleEnd, t);
-        this.bulletPool.fire(this.sprite.x, this.sprite.y + 20, angleDeg, BOSS.bulletSpeed + 40, {
-          texture: 'bullet_enemy', damage: cfg.damage, scale: cfg.scale, tint: 0xff0000,
-        });
-        step++;
-        if (step >= steps) this.laserActive = false;
-      },
     });
   }
 
@@ -198,19 +106,21 @@ export default class Boss {
   die() {
     if (!this.alive) return;
     this.alive = false;
-    this.juice.explosion(this.sprite.x, this.sprite.y, { scale: 2.2, count: 40, variant: 'large' });
-    this.juice.shake(500, 0.025);
     this.audio.explosionBig();
     this.scene.appEvents.emit('boss-killed', this);
-    this.destroy();
+    // Falls with the original (undamaged) texture first -- Destroy/N.png
+    // crumble frames crossfade in partway through the fall/shrink, then
+    // BigBlast plays once it's fully faded away (see Juice.fallAndBlast).
+    this.juice.fallAndBlast(this.sprite, {
+      duration: ANIMATION.bossFallDurationMs, variant: 'large', scale: 2.2, count: 40,
+      destroyKeyPrefix: 'ship_boss_destroy', destroyFrameCount: this.destroyFrameCount,
+      onComplete: () => { this.juice.shake(500, 0.025); this.destroy(); },
+    });
   }
 
   destroy() {
     this.alive = false;
-    if (this._laserTimer) {
-      this._laserTimer.remove(false);
-      this._laserTimer = null;
-    }
+    if (this.pattern && this.pattern.destroy) this.pattern.destroy();
     if (this.sprite) {
       this.sprite.owner = null;
       this.sprite.destroy();

@@ -1,8 +1,10 @@
-import { GAME_WIDTH, GAME_HEIGHT, CURRENT_MISSION, DIFFICULTY_ORDER, SHIPS_FALLBACK } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, DIFFICULTY_ORDER, SHIPS_FALLBACK } from '../config.js';
+import { MISSIONS } from '../missions/Missions.js';
 import AudioSystem from '../systems/Audio.js';
-import Starfield from '../systems/Starfield.js';
 import { ACCENT_HEX, TEXT_HEX, drawBeveledPanel, drawCornerBrackets, buildVerticalMenu } from '../systems/UITheme.js';
-import { getPrefs, clampShipIndex } from '../systems/PlayerPrefs.js';
+import { getPrefs, setPref, clampShipIndex } from '../systems/PlayerPrefs.js';
+
+const MISSION_NUMBERS = Object.keys(MISSIONS).map(Number).sort((a, b) => a - b);
 
 export default class MenuScene extends Phaser.Scene {
   constructor() {
@@ -24,14 +26,15 @@ export default class MenuScene extends Phaser.Scene {
     // same scene instance) -- otherwise a prior play()/openOptions() call
     // setting this true would permanently block PLAY/OPTIONS on return.
     this.navigating = false;
+    this.view = 'root';
+    this.shipObjs = null;
 
     this.cameras.main.setBackgroundColor('#05050f');
-    this.starfield = new Starfield(this);
-
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'menu_background').setDisplaySize(GAME_HEIGHT, GAME_HEIGHT).setDepth(-5);
     this.drawVignette();
     drawCornerBrackets(this, GAME_WIDTH, GAME_HEIGHT);
 
-    this.add.text(GAME_WIDTH / 2, 46, `MISSION ${CURRENT_MISSION} // OUTER RIM DEFENSE`, {
+    this.missionHeaderText = this.add.text(GAME_WIDTH / 2, 46, this.missionHeaderLabel(), {
       fontFamily: 'Arial',
       fontSize: '14px',
       color: '#3a7a8a',
@@ -39,10 +42,15 @@ export default class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     this.drawTitle();
-    this.drawShip();
-    this.drawRootMenu();
+
+    this.viewContent = this.add.container(0, 0);
+    this.renderView();
+
     this.drawExitButton();
-    this.input.keyboard.on('keydown-ESC', () => this.showExitConfirm());
+    this.input.keyboard.on('keydown-ESC', () => {
+      if (this.view === 'missions') this.setView('root');
+      else this.showExitConfirm();
+    });
 
     this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 34, 'ARROWS/WASD MOVE   •   SPACE FIRE   •   P PAUSE   •   M MUTE', {
       fontFamily: 'Arial',
@@ -51,8 +59,33 @@ export default class MenuScene extends Phaser.Scene {
     }).setOrigin(0.5);
   }
 
+  setView(view) {
+    this.view = view;
+    this.renderView();
+  }
+
+  renderView() {
+    // Ship preview carries two infinite tweens -- kill them before the
+    // sprites get destroyed by removeAll(true), or the tween manager keeps
+    // trying to update properties on destroyed objects.
+    if (this.shipObjs) {
+      this.tweens.killTweensOf(this.shipObjs);
+      this.shipObjs = null;
+    }
+    this.viewContent.removeAll(true);
+    this.missionHeaderText.setVisible(this.view === 'root');
+
+    if (this.view === 'root') this.renderRootView();
+    else this.renderMissionsView();
+  }
+
+  renderRootView() {
+    this.drawShip();
+    this.drawRootMenu();
+  }
+
   // Soft dark overlay top/bottom draws the eye toward center content instead
-  // of the flat starfield reading as an unbroken tile.
+  // of the flat background reading as an unbroken image.
   drawVignette() {
     const g = this.add.graphics();
     g.fillStyle(0x000000, 0.55);
@@ -97,7 +130,7 @@ export default class MenuScene extends Phaser.Scene {
     const shipIndex = clampShipIndex(prefs, ships);
 
     const cx = GAME_WIDTH / 2;
-    const cy = GAME_HEIGHT / 2 - 90;
+    const cy = GAME_HEIGHT / 2 - 60;
 
     const glow = this.add.image(cx, cy, 'particle_soft');
     glow.setTint(0x4de3ff);
@@ -109,6 +142,9 @@ export default class MenuScene extends Phaser.Scene {
     // BootScene's baked 320px-wide ship texture (see PLAYER.scale comment
     // in config.js for why the texture is now baked smaller).
     const ship = this.add.image(cx, cy, `${ships[shipIndex].key}_idle`).setScale(0.416);
+
+    this.viewContent.add([glow, ship]);
+    this.shipObjs = [ship, glow];
 
     this.tweens.add({
       targets: [ship, glow],
@@ -129,24 +165,92 @@ export default class MenuScene extends Phaser.Scene {
     });
   }
 
+  missionHeaderLabel() {
+    return `MISSION ${getPrefs(this).missionNumber} // OUTER RIM DEFENSE`;
+  }
+
+  // Full mission-select screen (own view, reached via the root menu's SELECT
+  // MISSION button) -- same box styling TestScene's mission selector uses.
+  // Picking a mission other than the currently-loaded one restarts BootScene
+  // to load that mission's art (see selectMission) -- gameplay-affecting art
+  // can only be loaded at boot, so there's no way to switch missions without
+  // that reload.
+  renderMissionsView() {
+    const prefs = getPrefs(this);
+    const title = this.add.text(GAME_WIDTH / 2, 90, 'SELECT MISSION', {
+      fontFamily: 'Arial Black, Arial', fontSize: '20px', color: TEXT_HEX,
+    }).setOrigin(0.5);
+
+    const boxW = 120;
+    const boxH = 70;
+    const gap = 16;
+    const columns = Math.min(MISSION_NUMBERS.length, 3);
+    const rows = Math.ceil(MISSION_NUMBERS.length / columns);
+    const totalW = columns * boxW + (columns - 1) * gap;
+    const startX = GAME_WIDTH / 2 - totalW / 2 + boxW / 2;
+    const startY = GAME_HEIGHT / 2 - ((rows - 1) * (boxH + gap)) / 2;
+
+    const boxes = [title];
+    MISSION_NUMBERS.forEach((n, i) => {
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      const x = startX + col * (boxW + gap);
+      const y = startY + row * (boxH + gap);
+      const selected = n === prefs.missionNumber;
+
+      const box = this.add.rectangle(x, y, boxW, boxH, 0x081018, selected ? 0.9 : 0.55)
+        .setStrokeStyle(selected ? 3 : 2, 0x4de3ff, selected ? 1 : 0.5)
+        .setInteractive({ useHandCursor: true });
+      const label = this.add.text(x, y, `MISSION ${n}`, {
+        fontFamily: 'Arial Black, Arial', fontSize: '14px', color: selected ? TEXT_HEX : '#5a8a9a',
+      }).setOrigin(0.5);
+      box.on('pointerdown', () => this.selectMission(n));
+      boxes.push(box, label);
+    });
+
+    this.viewContent.add(boxes);
+
+    buildVerticalMenu(this, {
+      x: GAME_WIDTH / 2, y: GAME_HEIGHT - 100, width: 180, height: 40, gap: 0,
+      container: this.viewContent,
+      items: [{ label: 'BACK', onSelect: () => this.setView('root') }],
+    });
+  }
+
+  // Reboots BootScene to load the chosen mission's art (enemy/background/boss
+  // all keyed off PlayerPrefs.missionNumber, see BootScene.loadManifestDrivenAssets)
+  // then falls back through to MenuScene again once loaded, same as first boot.
+  selectMission(n) {
+    if (this.navigating) return;
+    const prefs = getPrefs(this);
+    if (n === prefs.missionNumber) return;
+    setPref(this, 'missionNumber', n);
+    this.navigating = true;
+    this.scene.start('BootScene', { audio: this.audio });
+  }
+
+  // Small compact button stack -- narrower/tighter than the old PLAY/OPTIONS/
+  // TEST MISSION row so all 4 root actions still read as one tidy list.
   drawRootMenu() {
     buildVerticalMenu(this, {
       x: GAME_WIDTH / 2,
       y: GAME_HEIGHT / 2 + 130,
-      width: 260,
-      height: 56,
-      gap: 16,
-      bindKeys: true,
+      width: 190,
+      height: 34,
+      gap: 6,
+      container: this.viewContent,
       items: [
-        { label: 'PLAY', onSelect: () => this.play() },
+        { label: 'NEW GAME', onSelect: () => this.play() },
+        { label: 'SELECT MISSION', onSelect: () => this.setView('missions') },
         { label: 'OPTIONS', onSelect: () => this.openOptions() },
+        { label: 'TEST MISSION', onSelect: () => this.openTestMission() },
       ],
     });
   }
 
-  // Small corner close button instead of a third vertical menu item -- EXIT
-  // is a rare, low-priority action, so it doesn't deserve the same visual
-  // weight as PLAY/OPTIONS in the main stack.
+  // Small corner close button instead of a root-menu item -- EXIT is a rare,
+  // low-priority action, so it doesn't deserve the same visual weight as the
+  // others.
   drawExitButton() {
     const size = 34;
     const x = GAME_WIDTH - 34;
@@ -169,7 +273,7 @@ export default class MenuScene extends Phaser.Scene {
     const prefs = getPrefs(this);
     const ships = this.registry.get('availableShips') || SHIPS_FALLBACK;
     const shipIndex = clampShipIndex(prefs, ships);
-    this.scene.start('GameScene', {
+    this.scene.start('LaunchScene', {
       audio: this.audio,
       shipKey: ships[shipIndex].key,
       difficulty: DIFFICULTY_ORDER[prefs.difficultyIndex],
@@ -182,6 +286,19 @@ export default class MenuScene extends Phaser.Scene {
     if (this.navigating) return;
     this.navigating = true;
     this.scene.start('OptionsScene', { audio: this.audio });
+  }
+
+  // Sandbox scene for iterating on combat/animation tuning (destroy-stage
+  // frames, BigBlast finisher) without replaying a whole mission -- see
+  // TestScene.js. Skips LaunchScene entirely; it's not a real mission start.
+  openTestMission() {
+    if (this.navigating) return;
+    this.navigating = true;
+    this.audio.resume();
+    const prefs = getPrefs(this);
+    const ships = this.registry.get('availableShips') || SHIPS_FALLBACK;
+    const shipIndex = clampShipIndex(prefs, ships);
+    this.scene.start('TestScene', { audio: this.audio, shipKey: ships[shipIndex].key });
   }
 
   // Small Yes/No overlay so an accidental EXIT tap doesn't instantly close
@@ -234,7 +351,5 @@ export default class MenuScene extends Phaser.Scene {
     this.exitPanel = null;
   }
 
-  update(time, dt) {
-    this.starfield.update(dt);
-  }
+  update() {}
 }

@@ -4,10 +4,8 @@ import {
   INPUT_TYPES,
 } from '../config.js';
 import Starfield from '../systems/Starfield.js';
-import { ACCENT_HEX, TEXT_HEX, drawCornerBrackets, buildVerticalMenu } from '../systems/UITheme.js';
+import { ACCENT_HEX, TEXT_HEX, drawBeveledPanel, drawCornerBrackets, buildVerticalMenu } from '../systems/UITheme.js';
 import { getPrefs, setPref } from '../systems/PlayerPrefs.js';
-
-const MAX_SHIP_COLUMNS = 5;
 
 const DIFFICULTY_DESCRIPTIONS = {
   kids: 'Very gentle. Weak enemies, lots of power-ups, tiny damage taken.',
@@ -21,13 +19,22 @@ const INPUT_DESCRIPTIONS = {
   mouse: 'Ship follows cursor, left-click fire, right-click bomb. Keyboard still works too.',
 };
 
-const TEXT_DIM = '#5a8a9a';
+const AUTO_FIRE_DESCRIPTIONS = {
+  true: 'Weapon fires continuously without holding the fire key/button.',
+  false: 'Fire key/button must be held (or tapped) to shoot.',
+};
 
-// Pure configuration screen -- GAMEPLAY (difficulty + auto fire) / PLAYER
-// (ship) / INPUT, each its own sub-view with a Back button, entered from and
-// returning to a root vertical menu. No launch action here: PLAY always
-// happens from MenuScene, using whatever this screen last wrote to
-// PlayerPrefs. Shares the UITheme.js beveled-panel look with MenuScene.
+const TEXT_DIM = '#5a8a9a';
+const ROW_WIDTH = 560;
+const ROW_HEIGHT = 64;
+const ROW_GAP = 14;
+
+// Flat settings page -- four arrow-cycle rows (DIFFICULTY / GAMEPLAY /
+// PLAYER SHIP / INPUT): each shows "< VALUE >", tap/click an arrow (or Left/
+// Right when a row has focus) to step through that category's values in
+// place, wrapping at the ends. A short description sits under each row's
+// value; Player Ship instead gets a persistent big preview of the selected
+// ship below the whole stack.
 export default class OptionsScene extends Phaser.Scene {
   constructor() {
     super('OptionsScene');
@@ -45,8 +52,6 @@ export default class OptionsScene extends Phaser.Scene {
     const ships = this.registry.get('availableShips');
     this.ships = ships && ships.length ? ships : SHIPS_FALLBACK;
 
-    this.view = 'root';
-
     const title = this.add.text(GAME_WIDTH / 2, 34, 'OPTIONS', {
       fontFamily: 'Arial Black, Arial', fontSize: '26px', color: '#eafdff',
     }).setOrigin(0.5);
@@ -55,213 +60,137 @@ export default class OptionsScene extends Phaser.Scene {
     this.viewContent = this.add.container(0, 0);
     this.renderView();
 
-    // All keyboard bound once here, gated by this.view inside each handler
-    // -- avoids stacking duplicate listeners across repeated setView() calls
-    // within this one scene instance (unlike a fresh scene restart).
-    this.input.keyboard.on('keydown-ONE', () => { if (this.view === 'root') this.setView('gameplay'); });
-    this.input.keyboard.on('keydown-TWO', () => { if (this.view === 'root') this.setView('player'); });
-    this.input.keyboard.on('keydown-THREE', () => { if (this.view === 'root') this.setView('input'); });
-    this.input.keyboard.on('keydown-LEFT', () => this.moveSelection(-1));
-    this.input.keyboard.on('keydown-A', () => this.moveSelection(-1));
-    this.input.keyboard.on('keydown-RIGHT', () => this.moveSelection(1));
-    this.input.keyboard.on('keydown-D', () => this.moveSelection(1));
-    this.input.keyboard.on('keydown-UP', () => this.moveSelection(-this.upDownStride()));
-    this.input.keyboard.on('keydown-W', () => this.moveSelection(-this.upDownStride()));
-    this.input.keyboard.on('keydown-DOWN', () => this.moveSelection(this.upDownStride()));
-    this.input.keyboard.on('keydown-S', () => this.moveSelection(this.upDownStride()));
-    this.input.keyboard.on('keydown-F', () => { if (this.view === 'gameplay') this.toggleAutoFire(); });
-    this.input.keyboard.on('keydown-BACKSPACE', () => {
-      if (this.view === 'root') this.scene.start('MenuScene', { audio: this.audio });
-      else this.setView('root');
-    });
+    this.input.keyboard.on('keydown-ESC', () => this.scene.start('MenuScene', { audio: this.audio }));
+    this.input.keyboard.on('keydown-BACKSPACE', () => this.scene.start('MenuScene', { audio: this.audio }));
 
-    const isTouchDevice = this.sys.game.device.input.touch;
-    this.add.text(
-      GAME_WIDTH / 2, GAME_HEIGHT - 30,
-      isTouchDevice ? 'TAP A CATEGORY  •  TAP AN OPTION TO CHOOSE  •  BACK RETURNS' : '1-3 CATEGORY  •  ARROWS CHOOSE  •  BACKSPACE BACK',
-      { fontFamily: 'Arial', fontSize: '14px', color: '#3a7a8a' }
-    ).setOrigin(0.5);
+    this.add.text(GAME_WIDTH / 2, GAME_HEIGHT - 20, 'TAP ◀ ▶ TO CYCLE A VALUE  •  BACKSPACE/ESC BACK', {
+      fontFamily: 'Arial', fontSize: '13px', color: '#3a7a8a',
+    }).setOrigin(0.5);
   }
 
-  setView(view) {
-    this.view = view;
+  categories() {
+    const prefs = getPrefs(this);
+    return [
+      {
+        key: 'difficulty',
+        label: 'DIFFICULTY',
+        valueLabel: DIFFICULTY[DIFFICULTY_ORDER[prefs.difficultyIndex]].label,
+        description: DIFFICULTY_DESCRIPTIONS[DIFFICULTY_ORDER[prefs.difficultyIndex]],
+        length: DIFFICULTY_ORDER.length,
+        selectedIndex: prefs.difficultyIndex,
+        onPick: (i) => setPref(this, 'difficultyIndex', i),
+      },
+      {
+        key: 'gameplay',
+        label: 'GAMEPLAY',
+        valueLabel: `AUTO FIRE: ${prefs.autoFire ? 'ON' : 'OFF'}`,
+        description: AUTO_FIRE_DESCRIPTIONS[String(prefs.autoFire)],
+        length: 2,
+        selectedIndex: prefs.autoFire ? 1 : 0,
+        onPick: (i) => setPref(this, 'autoFire', i === 1),
+      },
+      {
+        key: 'ship',
+        label: 'PLAYER SHIP',
+        valueLabel: this.ships[prefs.shipIndex].name,
+        description: null,
+        length: this.ships.length,
+        selectedIndex: prefs.shipIndex,
+        onPick: (i) => setPref(this, 'shipIndex', i),
+      },
+      {
+        key: 'input',
+        label: 'INPUT',
+        valueLabel: prefs.inputType.toUpperCase(),
+        description: INPUT_DESCRIPTIONS[prefs.inputType],
+        length: INPUT_TYPES.length,
+        selectedIndex: INPUT_TYPES.indexOf(prefs.inputType),
+        onPick: (i) => setPref(this, 'inputType', INPUT_TYPES[i]),
+      },
+    ];
+  }
+
+  cycle(cat, delta) {
+    const next = (cat.selectedIndex + delta + cat.length) % cat.length;
+    cat.onPick(next);
     this.renderView();
   }
 
   renderView() {
     this.viewContent.removeAll(true);
-    if (this.view === 'root') this.renderRootView();
-    else if (this.view === 'gameplay') this.renderGameplayView();
-    else if (this.view === 'player') this.renderPlayerView();
-    else this.renderInputView();
+    let y = 100 + ROW_HEIGHT / 2;
+    for (const cat of this.categories()) {
+      this.renderCategoryRow(y, cat);
+      y += ROW_HEIGHT + ROW_GAP;
+    }
+    // y is now one step past the last row's center -- back it off to that
+    // row's actual bottom edge before adding the preview's own margin.
+    const rowsBottomEdge = y - ROW_GAP - ROW_HEIGHT / 2;
+    this.renderShipPreview(rowsBottomEdge + 16);
+    this.renderBackButton();
   }
 
-  renderRootView() {
-    buildVerticalMenu(this, {
-      x: GAME_WIDTH / 2, y: GAME_HEIGHT / 2 - 90, width: 320, height: 54, gap: 16,
-      container: this.viewContent,
-      items: [
-        { label: 'GAMEPLAY', onSelect: () => this.setView('gameplay') },
-        { label: 'PLAYER', onSelect: () => this.setView('player') },
-        { label: 'INPUT', onSelect: () => this.setView('input') },
-        { label: 'BACK', onSelect: () => this.scene.start('MenuScene', { audio: this.audio }) },
-      ],
-    });
+  renderCategoryRow(y, cat) {
+    const x = GAME_WIDTH / 2;
+    // Value sits in a fixed-width centered slot flanked by the two arrows --
+    // its position never depends on the value string's own width, so a long
+    // value (KEYBOARD, AUTO FIRE: ON) can't grow into and overlap an arrow.
+    const rowRight = x + ROW_WIDTH / 2;
+    const rightArrowX = rowRight - 24;
+    const leftArrowX = rowRight - 24 - 190;
+    const valueX = (leftArrowX + rightArrowX) / 2;
+
+    const panel = drawBeveledPanel(this, x - ROW_WIDTH / 2, y - ROW_HEIGHT / 2, ROW_WIDTH, ROW_HEIGHT, { chamfer: 8 });
+    const label = this.add.text(x - ROW_WIDTH / 2 + 20, y - 16, cat.label, {
+      fontFamily: 'Arial Black, Arial', fontSize: '15px', color: TEXT_HEX,
+    }).setOrigin(0, 0.5);
+
+    const value = this.add.text(valueX, y - 16, cat.valueLabel, {
+      fontFamily: 'Arial', fontSize: '15px', color: TEXT_DIM,
+    }).setOrigin(0.5);
+
+    const leftArrow = this.add.text(leftArrowX, y - 16, '◀', {
+      fontFamily: 'Arial Black, Arial', fontSize: '16px', color: ACCENT_HEX,
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    const rightArrow = this.add.text(rightArrowX, y - 16, '▶', {
+      fontFamily: 'Arial Black, Arial', fontSize: '16px', color: ACCENT_HEX,
+    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    leftArrow.on('pointerdown', () => this.cycle(cat, -1));
+    rightArrow.on('pointerdown', () => this.cycle(cat, 1));
+
+    const objs = [panel, label, value, leftArrow, rightArrow];
+    if (cat.description) {
+      const desc = this.add.text(x, y + 14, cat.description, {
+        fontFamily: 'Arial', fontSize: '11px', color: '#7aa8b8', align: 'center', wordWrap: { width: ROW_WIDTH - 40 },
+      }).setOrigin(0.5);
+      objs.push(desc);
+    }
+    this.viewContent.add(objs);
+  }
+
+  // Player Ship's picklist shows its selection here -- a persistent big
+  // preview below the whole row stack, always current with whatever the
+  // ship row's arrows just picked.
+  renderShipPreview(topY) {
+    const prefs = getPrefs(this);
+    const x = GAME_WIDTH / 2;
+    const ship = this.ships[prefs.shipIndex];
+    // Baked ship texture is 320x480 (see BootScene.bakePlayerShipTextures) --
+    // at this scale that's ~169px tall, so center it that far below topY.
+    const cy = topY + 85;
+    const sprite = this.add.image(x, cy, `${ship.key}_idle`).setScale(0.352);
+    const label = this.add.text(x, cy + 95, ship.name, {
+      fontFamily: 'Arial Black, Arial', fontSize: '16px', color: TEXT_HEX,
+    }).setOrigin(0.5);
+    this.viewContent.add([sprite, label]);
   }
 
   renderBackButton() {
     buildVerticalMenu(this, {
-      x: GAME_WIDTH / 2, y: GAME_HEIGHT - 70, width: 180, height: 46, gap: 0,
+      x: GAME_WIDTH / 2, y: GAME_HEIGHT - 66, width: 180, height: 40, gap: 0,
       container: this.viewContent,
-      items: [{ label: 'BACK', onSelect: () => this.setView('root') }],
+      items: [{ label: 'BACK', onSelect: () => this.scene.start('MenuScene', { audio: this.audio }) }],
     });
-  }
-
-  upDownStride() {
-    return this.view === 'player' ? Math.min(this.ships.length, MAX_SHIP_COLUMNS) : 1;
-  }
-
-  moveSelection(delta) {
-    const prefs = getPrefs(this);
-    if (this.view === 'player') {
-      const next = prefs.shipIndex + delta;
-      if (next < 0 || next >= this.ships.length) return;
-      setPref(this, 'shipIndex', next);
-    } else if (this.view === 'gameplay') {
-      const next = prefs.difficultyIndex + delta;
-      if (next < 0 || next >= DIFFICULTY_ORDER.length) return;
-      setPref(this, 'difficultyIndex', next);
-    } else if (this.view === 'input') {
-      const idx = INPUT_TYPES.indexOf(prefs.inputType);
-      const next = idx + (delta > 0 ? 1 : delta < 0 ? -1 : 0);
-      if (next < 0 || next >= INPUT_TYPES.length) return;
-      setPref(this, 'inputType', INPUT_TYPES[next]);
-    } else {
-      return;
-    }
-    this.renderView();
-  }
-
-  toggleAutoFire() {
-    setPref(this, 'autoFire', !getPrefs(this).autoFire);
-    this.renderView();
-  }
-
-  renderPlayerView() {
-    const prefs = getPrefs(this);
-    const columns = Math.min(this.ships.length, MAX_SHIP_COLUMNS);
-    const rows = Math.ceil(this.ships.length / columns);
-    const gridTop = 100;
-    const gridBottom = GAME_HEIGHT - 110;
-    const cellW = (GAME_WIDTH - 30) / columns;
-    const cellH = (gridBottom - gridTop) / rows;
-    const boxW = Math.min(140, cellW - 12);
-    const boxH = Math.min(170, cellH - 12);
-    // 0.352/0.16 = 0.11/0.05 * (1024/320) -- same on-screen sizes as before
-    // against BootScene's baked 320px-wide ship texture (see PLAYER.scale
-    // comment in config.js).
-    const spriteScale = Phaser.Math.Clamp(0.352 * (boxW / 140), 0.16, 0.352);
-
-    this.ships.forEach((ship, i) => {
-      const col = i % columns;
-      const row = Math.floor(i / columns);
-      const x = 15 + cellW * (col + 0.5);
-      const y = gridTop + cellH * (row + 0.5);
-      const selected = i === prefs.shipIndex;
-
-      const box = this.add.rectangle(x, y, boxW, boxH, 0x081018, selected ? 0.9 : 0.55)
-        .setStrokeStyle(selected ? 3 : 2, 0x4de3ff, selected ? 1 : 0.5);
-      const sprite = this.add.image(x, y - boxH * 0.12, `${ship.key}_idle`)
-        .setScale(selected ? spriteScale * 1.15 : spriteScale);
-      const label = this.add.text(x, y + boxH * 0.38, ship.name, {
-        fontFamily: 'Arial', fontSize: '13px', color: selected ? TEXT_HEX : TEXT_DIM,
-      }).setOrigin(0.5);
-
-      box.setInteractive({ useHandCursor: true });
-      box.on('pointerdown', () => {
-        setPref(this, 'shipIndex', i);
-        this.renderView();
-      });
-
-      this.viewContent.add([box, sprite, label]);
-    });
-
-    this.renderBackButton();
-  }
-
-  renderGameplayView() {
-    const prefs = getPrefs(this);
-    const cellW = GAME_WIDTH / DIFFICULTY_ORDER.length;
-    const y = GAME_HEIGHT / 2 - 60;
-    const w = cellW - 24;
-    const h = 170;
-
-    DIFFICULTY_ORDER.forEach((key, i) => {
-      const x = cellW * (i + 0.5);
-      const cfg = DIFFICULTY[key];
-      const selected = i === prefs.difficultyIndex;
-
-      const box = this.add.rectangle(x, y, w, h, 0x081018, selected ? 0.9 : 0.55)
-        .setStrokeStyle(selected ? 3 : 2, 0x4de3ff, selected ? 1 : 0.5);
-      const label = this.add.text(x, y - 50, cfg.label, {
-        fontFamily: 'Arial Black, Arial', fontSize: '20px', color: selected ? TEXT_HEX : TEXT_DIM,
-      }).setOrigin(0.5);
-      const desc = this.add.text(x, y + 10, DIFFICULTY_DESCRIPTIONS[key], {
-        fontFamily: 'Arial', fontSize: '13px', color: '#7aa8b8', align: 'center', wordWrap: { width: cellW - 44 },
-      }).setOrigin(0.5);
-
-      box.setInteractive({ useHandCursor: true });
-      box.on('pointerdown', () => {
-        setPref(this, 'difficultyIndex', i);
-        this.renderView();
-      });
-
-      this.viewContent.add([box, label, desc]);
-    });
-
-    const toggleY = GAME_HEIGHT / 2 + 130;
-    const toggleBox = this.add.rectangle(GAME_WIDTH / 2, toggleY, 260, 56, 0x081018, 0.85)
-      .setStrokeStyle(2, prefs.autoFire ? 0x4de3ff : 0x2a4a55, prefs.autoFire ? 1 : 0.6);
-    const toggleLabel = this.add.text(GAME_WIDTH / 2, toggleY, `AUTO FIRE: ${prefs.autoFire ? 'ON' : 'OFF'}`, {
-      fontFamily: 'Arial Black, Arial', fontSize: '16px', color: prefs.autoFire ? TEXT_HEX : TEXT_DIM,
-    }).setOrigin(0.5);
-    toggleBox.setInteractive({ useHandCursor: true });
-    toggleBox.on('pointerdown', () => this.toggleAutoFire());
-    this.viewContent.add([toggleBox, toggleLabel]);
-
-    this.renderBackButton();
-  }
-
-  renderInputView() {
-    const prefs = getPrefs(this);
-    const cellW = GAME_WIDTH / INPUT_TYPES.length;
-    const y = GAME_HEIGHT / 2 - 60;
-    const w = cellW - 24;
-    const h = 150;
-
-    INPUT_TYPES.forEach((key, i) => {
-      const x = cellW * (i + 0.5);
-      const selected = key === prefs.inputType;
-
-      const box = this.add.rectangle(x, y, w, h, 0x081018, selected ? 0.9 : 0.55)
-        .setStrokeStyle(selected ? 3 : 2, 0x4de3ff, selected ? 1 : 0.5);
-      const label = this.add.text(x, y - 40, key.toUpperCase(), {
-        fontFamily: 'Arial Black, Arial', fontSize: '20px', color: selected ? TEXT_HEX : TEXT_DIM,
-      }).setOrigin(0.5);
-      const desc = this.add.text(x, y + 10, INPUT_DESCRIPTIONS[key], {
-        fontFamily: 'Arial', fontSize: '12px', color: '#7aa8b8', align: 'center', wordWrap: { width: cellW - 44 },
-      }).setOrigin(0.5);
-
-      box.setInteractive({ useHandCursor: true });
-      box.on('pointerdown', () => {
-        setPref(this, 'inputType', key);
-        this.renderView();
-      });
-
-      this.viewContent.add([box, label, desc]);
-    });
-
-    this.renderBackButton();
   }
 
   update(time, dt) {

@@ -12,7 +12,7 @@ export default class BulletPool {
     });
   }
 
-  fire(x, y, angleDeg, speed, { texture, damage, scale = 0.5, pierce = 0, tint } = {}) {
+  fire(x, y, angleDeg, speed, { texture, damage, scale = 0.5, pierce = 0, tint, blendMode } = {}) {
     const key = texture || this.group.defaultKey;
     const bullet = this.group.get(x, y, key);
     if (!bullet) return null;
@@ -26,6 +26,10 @@ export default class BulletPool {
     bullet.setScale(scale);
     if (tint !== undefined) bullet.setTint(tint);
     else bullet.clearTint();
+    // Pooled objects reuse whatever blend mode they last had -- reset to
+    // NORMAL every time unless this shot explicitly wants glow (e.g. fire
+    // attacks using ADD for a hot, glowing look).
+    bullet.setBlendMode(blendMode || Phaser.BlendModes.NORMAL);
     bullet.damage = damage !== undefined ? damage : this.damage;
     // Pierce count: how many extra targets this bullet can pass through
     // before actually being killed on hit (see GameScene.onPlayerBulletHit).

@@ -24,7 +24,10 @@ export default class Starfield {
       );
       s.setAlpha(cfg.alpha);
       s.setTint(cfg.tint);
-      s.setScale(Phaser.Math.Between(1, 2));
+      // star_pixel is now an 8px baked circle (was a 2px square) so it
+      // stays smooth when scaled -- 0.25-0.5 keeps the same ~2-4px
+      // on-screen size as before.
+      s.setScale(Phaser.Math.FloatBetween(0.25, 0.5));
       s.setDepth(-10);
       stars.push(s);
     }

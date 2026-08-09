@@ -2,7 +2,9 @@ import { GAME_WIDTH, GAME_HEIGHT } from './config.js';
 import BootScene from './scenes/BootScene.js';
 import MenuScene from './scenes/MenuScene.js';
 import OptionsScene from './scenes/OptionsScene.js';
+import LaunchScene from './scenes/LaunchScene.js';
 import GameScene from './scenes/GameScene.js';
+import TestScene from './scenes/TestScene.js';
 import HUDScene from './scenes/HUDScene.js';
 import GameOverScene from './scenes/GameOverScene.js';
 
@@ -73,7 +75,7 @@ const config = {
       debug: false,
     },
   },
-  scene: [BootScene, MenuScene, OptionsScene, GameScene, HUDScene, GameOverScene],
+  scene: [BootScene, MenuScene, OptionsScene, LaunchScene, GameScene, TestScene, HUDScene, GameOverScene],
 };
 
 window.game = new Phaser.Game(config);

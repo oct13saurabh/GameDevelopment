@@ -1,4 +1,4 @@
-import { TRAIN, GAME_HEIGHT } from '../config.js';
+import { TRAIN, GAME_HEIGHT, ANIMATION } from '../config.js';
 
 // TRAIN.scale is tuned against a 1024px-wide source image. New train art
 // dropped into GameAssets/Train can be any resolution -- scale is
@@ -15,6 +15,12 @@ export default class Train {
     this.audio = audio;
     this.hp = TRAIN.hp;
     this.alive = true;
+    this.textureKey = textureKey;
+    // Death crumble frames (GameAssets/Train/.../Destroy), played in die()
+    // once hp hits 0 -- 0 for train variants that don't have one yet (see
+    // BootScene.trainDestroyFrameCounts).
+    const destroyCounts = scene.registry.get('trainDestroyFrameCounts') || {};
+    this.destroyFrameCount = destroyCounts[textureKey] || 0;
 
     this.sprite = scene.physics.add.image(x, y, textureKey);
     // Physics groups reset velocity to their (zero) defaults when a sprite is
@@ -52,10 +58,16 @@ export default class Train {
   die() {
     if (!this.alive) return;
     this.alive = false;
-    this.juice.explosion(this.sprite.x, this.sprite.y, { scale: 1.5, count: 28, variant: 'medium' });
     this.audio.explosionSmall();
     this.scene.appEvents.emit('train-destroyed', this);
-    this.destroy();
+    // Falls with the original (undamaged) texture first -- Destroy/N.png
+    // crumble frames crossfade in partway through the fall/shrink, then
+    // BigBlast plays once it's fully faded away (see Juice.fallAndBlast).
+    this.juice.fallAndBlast(this.sprite, {
+      duration: ANIMATION.trainFallDurationMs, scale: 1.5, count: 28, variant: 'medium',
+      destroyKeyPrefix: `${this.textureKey}_destroy`, destroyFrameCount: this.destroyFrameCount,
+      onComplete: () => this.destroy(),
+    });
   }
 
   destroy() {

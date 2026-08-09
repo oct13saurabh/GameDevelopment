@@ -1,4 +1,4 @@
-import { DIFFICULTY_ORDER, DEFAULT_DIFFICULTY, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
+import { DIFFICULTY_ORDER, DEFAULT_DIFFICULTY, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE, CURRENT_MISSION } from '../config.js';
 
 // Registry-backed prefs (Phaser's registry persists across scene stop/start,
 // same pattern already used for availableShips/enemyDesigns elsewhere) --
@@ -12,6 +12,13 @@ function defaults() {
     difficultyIndex: Math.max(DIFFICULTY_ORDER.indexOf(DEFAULT_DIFFICULTY), 0),
     inputType: DEFAULT_INPUT_TYPE,
     autoFire: DEFAULT_AUTO_FIRE,
+    // Which mission is currently selected -- set from MenuScene's mission
+    // selector. Registry-backed (see REGISTRY_KEY comment above), so it
+    // resets to CURRENT_MISSION on every fresh page load/session, but
+    // persists across scene restarts within one session, including the
+    // BootScene restart that reloads that mission's art (see
+    // MenuScene.selectMission).
+    missionNumber: CURRENT_MISSION,
   };
 }
 

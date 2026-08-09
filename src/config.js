@@ -11,11 +11,15 @@ export const GAME_HEIGHT = 720;
 // "Mission N" designs are exclusive to that mission. CURRENT_MISSION picks
 // which Mission-N folder is probed -- bump it (and drop in a new folder)
 // when Mission 2 art arrives, no other code changes needed.
+// Default mission a fresh session starts on. The actually-active mission is
+// selectable at runtime from MenuScene (persisted via PlayerPrefs'
+// missionNumber, see systems/PlayerPrefs.js) -- this constant is just the
+// fallback used the very first time prefs are created.
 export const CURRENT_MISSION = 1;
 
 export const PLAYER = {
-  speed: 320,
-  fireRate: 220, // ms between shots at weapon level 1
+  speed: 250,
+  fireRate: 150, // ms between shots at weapon level 1
   fireRateMin: 110, // fastest fire rate at max weapon level
   startLives: 3,
   startHealth: 100,
@@ -59,11 +63,11 @@ export const SHIPS_FALLBACK = [{ key: 'ship_01', name: 'Ship 1' }];
 // columns (separated by the fixed xOff spacing in Player.tryFire), not an
 // angled V/fan.
 export const WEAPON_LEVELS = [
-  { level: 1, bulletCount: 1, spreadDeg: 0, fireRate: 220 },
-  { level: 2, bulletCount: 2, spreadDeg: 0, fireRate: 195 },
-  { level: 3, bulletCount: 3, spreadDeg: 0, fireRate: 170 },
-  { level: 4, bulletCount: 4, spreadDeg: 0, fireRate: 145 },
-  { level: 5, bulletCount: 5, spreadDeg: 0, fireRate: 130 },
+  { level: 1, bulletCount: 1, spreadDeg: 0, fireRate: 150 },
+  { level: 2, bulletCount: 2, spreadDeg: 0, fireRate: 140 },
+  { level: 3, bulletCount: 3, spreadDeg: 0, fireRate: 130 },
+  { level: 4, bulletCount: 4, spreadDeg: 0, fireRate: 125 },
+  { level: 5, bulletCount: 5, spreadDeg: 0, fireRate: 110 },
 ];
 export const WEAPON_MAX_LEVEL = WEAPON_LEVELS.length;
 
@@ -218,31 +222,38 @@ export const ENEMY_TYPES = {
   },
 };
 
-// Mission-specific HP overrides per ship type. Omit a ship type to use
-// ENEMY_TYPES default. Each mission can override individual ships and the boss.
-export const MISSION_SHIPS = {
-  mission1: {
-    basic: 20,
-    fast: 15,
-    heavy: 60,
-    sniper: 25,
-    swarm: 8,
-    elite: 80,
-    scout: 10,
-    hornet: 12,
-    dragonfly: 18,
-    carrier: 30,
-    boss: 1400,
-  },
-};
-
 export const METEOR = {
   // Slowed down (was 40-110) so meteors linger on screen longer instead of
   // dropping straight through.
   speedMin: 25,
-  speedMax: 70,
+  speedMax: 80,
   scoreValue: 50,
   powerUpChance: 0.16, // reduced from 0.35 -- power-ups should feel earned
+
+  // Background ambient trickle (GameScene.maybeSpawnAmbientMeteor) -- outside
+  // the dedicated meteor-shower event (see METEOR_SHOWER below / per-mission
+  // meteorShower config in missions/Missions.js), meteors should be a rare
+  // sight, not a constant hazard: low per-tick chance, hard capped at how
+  // many can be alive on screen at once.
+  ambientSpawnIntervalMs: 4000,
+  ambientSpawnChance: 0.22,
+  ambientMaxOnScreen: 2,
+};
+
+// Default shape for a mission's meteor-shower event -- WaveManager reads
+// missions/Missions.js's per-mission `meteorShower` block (falling back to
+// these values for any field a mission omits). Fires once, at
+// `triggerAtFraction` through the mission's wave timeline, dropping a dense
+// meteor burst while thinning regular enemy spawns (see
+// GameScene.spawnEnemy's meteorShowerActive check) so meteors are the star
+// of that stretch instead of just more clutter alongside full enemy waves.
+export const METEOR_SHOWER_DEFAULTS = {
+  enabled: true,
+  triggerAtFraction: 0.6,
+  durationMs: 10000,
+  count: 25,
+  intervalMs: 450,
+  enemyThinning: 0.5, // fraction of enemy spawns randomly skipped during the shower
 };
 
 // BootScene.bakeOtherLargeTextures() resamples meteor art down to a crisp
@@ -282,7 +293,7 @@ export const SPECIAL_METEOR = {
 // only (no horizontal drift/rotation), slower than a meteor and with more
 // hp than even the largest meteor. Capped per mission.
 export const TRAIN = {
-  hp: 460,
+  hp: 660,
   speed: 30,
   scoreValue: 200,
   scale: 0.2, // Train_01 source is a large 1024x1536 image -- bumped up from 0.12, more imposing
@@ -311,14 +322,6 @@ export const POWERUP = {
     emp: 8,
     life: 3,
   },
-};
-
-// Missions a power-up type is allowed to drop in. Omit a type from this map
-// (or leave it out entirely) to allow it in every mission -- only types that
-// need restricting get an entry. Checked in GameScene.pickPowerUpType against
-// CURRENT_MISSION.
-export const POWERUP_MISSION_RESTRICTIONS = {
-  emp: [1],
 };
 
 // Smart bomb: collecting the pickup adds a stored charge (HUD-tracked via
@@ -418,6 +421,30 @@ export const ENEMY_ROTATION = {
   },
 };
 
+// Tunable speeds for the Destroy-frame / BigBlast death flipbooks and the
+// mission-start launch takeoff -- adjust freely while play-testing feel.
+export const ANIMATION = {
+  // Playback speed (ms/frame) for the Destroy/N.png crumble flipbook, played
+  // in full at 0% hp (death) before BigBlast plays.
+  destroyFrameMs: 250,
+  // Playback speed (ms/frame) for the shared Animation/BigBlast flipbook.
+  bigBlastFrameMs: 100,
+  // Duration of the alpha dissolve blending each Destroy/N.png frame into the
+  // next (Juice.crossfadeTexture) -- an instant setTexture swap reads as two
+  // unrelated static images cutting between each other, so each frame of the
+  // death flipbook blends across this window instead.
+  destroyStageFlickerMs: 120,
+  // Duration of the player ship's takeoff tween in LaunchScene.
+  launchDurationMs: 2800,
+  // Duration of the fall/shrink tween in Juice.fallAndBlast for the boss and
+  // train death sequences (sinks + shrinks before BigBlast plays).
+  bossFallDurationMs: 3400,
+  trainFallDurationMs: 3000,
+  // Fraction of the fall duration to wait before Destroy/N.png frames start
+  // crossfading in -- 0 = right at fall start, 1 = never (would skip crumble).
+  destroyStageStartFraction: 0.8,
+};
+
 export const BOSS = {
   hp: 1400,
   scoreValue: 5000,
@@ -445,6 +472,103 @@ export const BOSS = {
     angleEnd: 120,
     damage: 12,
     scale: 0.5,
+  },
+
+  // --- Mission 1 attack cycle (bossPatterns/Mission1Pattern.js) ---
+  // Window durations (ms) for the repeating Twin Cannons -> pause -> Spread
+  // -> pause -> Missiles -> pause -> Laser Charge -> Laser Sweep cycle. Same
+  // 7-state shape across all 3 phases (only tempo changes) -- pauses shrink
+  // and the laser telegraph tightens each phase so pressure ramps up without
+  // changing the pattern's readable shape.
+  mission1Cycle: {
+    phase1: { twinCannons: 5000, pause1: 1000, spread: 4000, pause2: 2000, missiles: 3000, pause3: 1000, laserCharge: 2000, laserSweep: 3000 },
+    phase2: { twinCannons: 5000, pause1: 700, spread: 4000, pause2: 1400, missiles: 3000, pause3: 700, laserCharge: 1600, laserSweep: 3000 },
+    phase3: { twinCannons: 4500, pause1: 500, spread: 3800, pause2: 1000, missiles: 2800, pause3: 500, laserCharge: 1300, laserSweep: 3200 },
+  },
+  // Fast, narrow-spaced pair -- dodge is a single sidestep. Damage kept low
+  // since it fires continuously through its 5s window.
+  twinCannon: { fireRateMs: 550, bulletSpeed: 260, damage: 9, scale: 0.5, spacing: 26 },
+  // 5-bullet fan with visible gaps -- meant to be woven through, not walled
+  // against.
+  spreadShot: { fireRateMs: 650, count: 5, spreadDeg: 55, bulletSpeed: 190, damage: 7, scale: 0.42 },
+
+  // --- Mission 2 destroyable minions (bossPatterns/Drone.js) ---
+  // Flank the boss and trickle-fire aimed shots; killable for score/relief,
+  // creating the target-priority choice (snipe drones vs. focus boss).
+  drone: {
+    hp: 25, fireRateMs: 2000, bulletSpeed: 210, bulletDamage: 8,
+    texture: 'enemy_b_m', scale: 0.42, tint: 0x66ff99, hitboxRadius: 10,
+    flankOffsets2: [[-90, 30], [90, 30]],
+    flankOffsets4: [[-110, 20], [110, 20], [-60, 55], [60, 55]],
+  },
+
+  // --- Mission 2 Rotating Spore Burst, phase 3+ ---
+  sporeBurst: { count: 14, bulletSpeed: 175, damage: 8, scale: 0.42, rotateStepDeg: 15 },
+
+  // --- Mission 2 Triple Plasma Burst, phase 1 ---
+  plasmaBurst: { bulletsPerVolley: 3, volleys: 6, volleyIntervalMs: 220, spreadDeg: 18, bulletSpeed: 230, damage: 9, scale: 0.46 },
+
+  // --- Mission 2 per-phase cycle window durations (ms) ---
+  // Phases 1-3 alternate a pair of named patterns with pauses between; phase
+  // 4 is a fixed non-toggling sequence through all patterns, timed ~25%
+  // faster than phases 1-3's average tempo. Phase 2's droneLaunch used to
+  // toggle with Acid Spread -- removed (bossPatterns/AcidPool.js deleted),
+  // now reuses phase 1's Triple Plasma Burst instead.
+  mission2Cycle: {
+    phase1: { plasmaBurst: 2600, pauseA: 800, droneLaunch: 3200, pauseB: 1000 },
+    phase2: { droneLaunch: 3200, pauseA: 900, plasmaBurst: 2600, pauseB: 900 },
+    phase3: { hiveMissiles: 3600, pauseA: 800, sporeBurst: 3200, pauseB: 800 },
+    phase4: { droneLaunch4: 2400, plasmaBurst: 2000, hiveMissiles: 2800, sporeBurst: 2400, pauseBetween: 500 },
+    // Phase 3's drones spawn on a separate background timer per the spec
+    // ("drone launches continue"), not as a cycle state.
+    phase3BackgroundDroneIntervalMs: 6000,
+  },
+
+  // --- Mission 3 fire attack cycle (bossPatterns/Mission3Pattern.js) ---
+  // Same 5-state shape across all 3 phases (Flame Breath -> pause -> Fire
+  // Rain -> pause -> Ember Ring -> repeat), tempo tightens by phase, same
+  // approach as Mission 1's cycle.
+  // mineDrop/pause4 added for the Mine Barrage attack (bossPatterns/Mine.js) --
+  // extends the same repeating shape with a 4th attack + pause pair.
+  mission3Cycle: {
+    phase1: { flameBreath: 3500, pause1: 1000, missileBarrage: 3000, pause2: 1200, emberRing: 900, pause3: 1400, mineDrop: 600, pause4: 1600 },
+    phase2: { flameBreath: 3500, pause1: 700, missileBarrage: 3200, pause2: 900, emberRing: 900, pause3: 1000, mineDrop: 600, pause4: 1200 },
+    phase3: { flameBreath: 3200, pause1: 500, missileBarrage: 3400, pause2: 600, emberRing: 900, pause3: 700, mineDrop: 600, pause4: 800 },
+  },
+  // Widening cone of fire bullets aimed at the player, swept across a narrow
+  // angle band around the aim direction over the window -- reads as a flame
+  // jet, not a single beam. Telegraphed like the laser. Bigger/glowing scale
+  // vs. a plain bullet so the stream reads as fire, not ammo.
+  flameBreath: {
+    tickMs: 90, coneDeg: 40, bulletSpeed: 210, damage: 8, scale: 0.7,
+  },
+  // Missile Barrage (bossPatterns/EnemyMissile.js) -- a staggered volley of
+  // destroyable homing missiles. Steering is clamped to the lower half-circle
+  // only (see EnemyMissile.clampAngleDeg): they can curve toward the player
+  // across left/right/down, but never rotate up past horizontal, so they
+  // always read as launched downward at the player, never doubling back.
+  // If left alone (not shot down, doesn't reach the player) for lifetimeMs,
+  // it self-detonates in place (EnemyMissile.explode) for blastRadius'd
+  // splash damage instead of drifting forever.
+  missileBarrage: {
+    count: 10, staggerMs: 250,
+    hp: 18, speed: 200, turnRateDeg: 70, damage: 18,
+    texture: 'enemy_missile_rocket', scale: 0.35, hitboxRadius: 10,
+    lifetimeMs: 5000, blastRadius: 70,
+  },
+  // Instant radial ring, orange/red -- Mission 1's fireRadial shape reused
+  // with fire tuning, punctuating the cycle between the two sustained attacks.
+  emberRing: { count: 16, bulletSpeed: 195, damage: 9, scale: 0.68 },
+
+  // --- Mission 3 Mine Barrage (bossPatterns/Mine.js), phase 1+ ---
+  // Drifting mines dropped in a row below the boss. One player bullet blasts
+  // a mine outright (hp: 1); touching one with the ship instead blasts the
+  // player for mine.damage. Slow drift + gentle wobble gives time to react
+  // by shooting a gap open or weaving through.
+  mine: {
+    hp: 1, texture: 'mine', scale: 0.25, hitboxRadius: 13,
+    driftSpeed: 80, wobbleAmp: 35, wobbleFreq: 1.6,
+    damage: 60, dropCount: 10, spacingX: 50,
   },
 };
 
@@ -478,9 +602,31 @@ export const DIFFICULTY = {
   easy: { label: 'EASY', hpMult: 1, powerUpChanceMult: 1, meteorCountMult: 1, damageTakenMult: 1 },
   normal: { label: 'NORMAL', hpMult: 1.5, powerUpChanceMult: 0.7, meteorCountMult: 1.5, damageTakenMult: 1 },
   hard: { label: 'HARD', hpMult: 2.2, powerUpChanceMult: 0.45, meteorCountMult: 2, damageTakenMult: 1 },
+  // UI marker only -- no hpMult/etc of its own. GameScene special-cases this
+  // key: it starts the run on ADAPTIVE.startTier's real config and swaps
+  // diffCfg live via AdaptiveDifficulty (see src/systems/AdaptiveDifficulty.js).
+  adaptive: { label: 'ADAPTIVE' },
 };
-export const DIFFICULTY_ORDER = ['kids', 'easy', 'normal', 'hard'];
-export const DEFAULT_DIFFICULTY = 'normal';
+export const DIFFICULTY_ORDER = ['kids', 'easy', 'normal', 'hard', 'adaptive'];
+export const DEFAULT_DIFFICULTY = 'adaptive';
+
+// Real tiers AdaptiveDifficulty is allowed to land on (excludes the
+// 'adaptive' marker entry above -- that's a picker option, not a tier).
+export const ADAPTIVE_REAL_TIERS = ['kids', 'easy', 'normal', 'hard'];
+
+// Tuning for adaptive-mode auto-adjustment. Reaching WEAPON_MAX_LEVEL in a
+// given color jumps straight to that color's target tier here (see
+// AdaptiveDifficulty.onWeaponChanged) -- the only thing that ramps difficulty
+// UP. scoreDownPerSec is downshift-only, ballparked against a 15s window:
+// under ~1.5 basic-enemy kills' worth (ENEMY_TYPES.basic.scoreValue 100, so
+// ~150 total) in the window reads as struggling/passive.
+export const ADAPTIVE = {
+  startTier: 'normal',
+  minAdjustIntervalMs: 8000,
+  weaponMaxLevelTierByColor: { yellow: 'normal', blue: 'hard', red: 'hard' },
+  scoreWindowMs: 15000,
+  scoreDownPerSec: 10,
+};
 
 // Options-screen input scheme. 'keyboard' disables mouse move/fire/bomb
 // entirely; 'mouse' layers mouse control on top of keyboard, which always
@@ -489,18 +635,54 @@ export const INPUT_TYPES = ['keyboard', 'mouse'];
 export const DEFAULT_INPUT_TYPE = 'keyboard';
 export const DEFAULT_AUTO_FIRE = true;
 
+// Purely decorative random background objects (planets, etc -- see
+// GameAssets/Background/Environment). Spawn periodically, drift slowly
+// downward, far behind gameplay. Size (parsed from filename) drives scale/
+// speed/alpha: bigger objects read as closer, so drift slower and sit dimmer;
+// smaller objects drift faster and pop more, like distant twinkling scenery.
+export const ENVIRONMENT_OBJECTS = {
+  spawnIntervalMs: 16000,
+  depth: -7,
+  // Per-tick spawn chance is mission-specific -- see environmentSpawnChance
+  // in src/missions/Mission<N>.js. defaultSpawnChance below is only the
+  // fallback for a mission with no config entry at all.
+  defaultSpawnChance: 0.35,
+  // Minimum gap (px, edge-to-edge) kept between two environment objects'
+  // circles -- see GameScene.spawnEnvironmentObject's overlap check.
+  minSeparationPx: 20,
+  bySize: {
+    // VerySmall is the one size allowed while the mission backdrop image is
+    // showing (see GameScene.spawnEnvironmentObject/spawnBackgroundStation) --
+    // it needs its own depth, above the backdrop's -6 (BackgroundStation
+    // default) instead of the usual -7, so it reads as drifting in front of
+    // the backdrop rather than behind it.
+    VerySmall: { scale: 0.084, driftSpeed: 32, alpha: 0.7, depth: -5 }, // 0.12 - 30%
+    Small: { scale: 0.125, driftSpeed: 26, alpha: 0.65 }, // 0.25 - 50%
+    Medium: { scale: 0.25, driftSpeed: 18, alpha: 0.55 }, // 0.5 - 50%
+    Big: { scale: 0.51, driftSpeed: 10, alpha: 0.45 }, // 0.85 - 40%
+  },
+};
+
 // Purely decorative background structures, composed from several station/
 // building tile pieces into one coherent silhouette. Non-collidable; drift
 // slowly downward behind gameplay for atmosphere.
 export const SPACE_STATIONS = {
+  // Foreground station/building silhouettes (spawnSpaceStation) disabled for
+  // now -- kept in code, just not spawning. The mission backdrop image
+  // (backgroundBySize below) is a separate feature and unaffected.
+  enabled: false,
   driftSpeed: 18,
   spawnIntervalMs: 22000,
   partHp: 30,
-  // Single far-back backdrop layer -- slow drift, small scale, dim, reads as
-  // distant scenery instead of competing with foreground gameplay.
-  backgroundDriftSpeed: 20,
-  backgroundScale: 0.6,
-  backgroundAlpha: 0.5,
+  // Single far-back backdrop layer (GameAssets/Background/Mission N) -- slow
+  // drift, small scale, dim, reads as distant scenery instead of competing
+  // with foreground gameplay. Size (parsed from filename, default Medium if
+  // no suffix) picks which row below applies.
+  backgroundBySize: {
+    Small: { scale: 0.35, driftSpeed: 26, alpha: 0.6 },
+    Medium: { scale: 0.6, driftSpeed: 20, alpha: 0.5 },
+    Big: { scale: 0.9, driftSpeed: 14, alpha: 0.4 },
+  },
   templates: [
     {
       name: 'crossStation',

@@ -6,30 +6,90 @@
         "enemy_1_b_l2.png",
         "enemy_1_b_m.png",
         "enemy_1_b_r1.png",
-        "enemy_1_b_r2.png"
+        "enemy_1_b_r2.png",
+        "enemy_2_static_1.png",
+        "enemy_2_static_2.png"
       ],
       "Mission 1": [
         "GE1.png",
         "GE2.png",
         "GE3.png"
+      ],
+      "Mission 2": [
+        "EM-1.png",
+        "EM-2.png",
+        "EM-3.png"
+      ],
+      "Mission 3": [
+        "EM-2.png"
       ]
     },
     "EnemyPowerUpDrop": {
       "Default": [
         "EnemyD1.png",
-        "EnemyD2.png"
+        "EnemyD2.png",
+        "Enemy_1_b_r4.png"
       ],
       "Mission 1": [
-        "E12.png",
-        "EM0.png",
-        "EM1.png"
+        "EnemyM1_1.png",
+        "EnemyM1_2.png",
+        "EnemyM1_4.png"
+      ],
+      "Mission 2": [
+        "EnemyM2_1.png",
+        "EnemyM2_2.png",
+        "EnemyM2_4.png"
+      ],
+      "Mission 3": [
+        "EnemyM3_1.png",
+        "EnemyM3_2.png",
+        "EnemyM3_3.png"
+      ],
+      "Mission 4": [
+        "EnemyM4_1.png",
+        "EnemyM4_2.png",
+        "EnemyM4_3.png",
+        "EnemyM4_4.png"
+      ],
+      "Mission 5": [
+        "EnemyM5_1.png",
+        "EnemyM5_2.png",
+        "EnemyM5_3.png"
       ]
     }
   },
-  "train": [
-    "Train_01.png",
-    "Train_02.png"
-  ],
+  "train": {
+    "Train_01": {
+      "art": "Train_01.png",
+      "destroy": [
+        "1.png",
+        "2.png",
+        "3.png",
+        "4.png",
+        "5.png"
+      ]
+    },
+    "Train_02": {
+      "art": "Train_02.png",
+      "destroy": [
+        "1.png",
+        "2.png",
+        "3.png",
+        "4.png",
+        "5.png"
+      ]
+    },
+    "Train_03": {
+      "art": "Train_03.png",
+      "destroy": [
+        "1.png",
+        "2.png",
+        "3.png",
+        "4.png",
+        "5.png"
+      ]
+    }
+  },
   "playerShip": [
     {
       "name": "F-35",
@@ -59,13 +119,111 @@
   ],
   "background": {
     "Mission 1": [
-      "B-5.png"
+      {
+        "file": "Blackhole_Big.png",
+        "size": "Big"
+      }
     ],
     "Mission 2": [
-      "B-2.jpg"
+      {
+        "file": "B-2.png",
+        "size": "Medium"
+      }
     ],
     "Mission 3": [
-      "B-4.jpg"
+      {
+        "file": "B-4.png",
+        "size": "Medium"
+      }
+    ],
+    "environment": {
+      "Default": [
+        {
+          "file": "P-1_Medium.png",
+          "size": "Medium"
+        },
+        {
+          "file": "P-2_Big.png",
+          "size": "Big"
+        },
+        {
+          "file": "P-3_Small.png",
+          "size": "Small"
+        },
+        {
+          "file": "P-4_VerySmall.png",
+          "size": "VerySmall"
+        }
+      ],
+      "Mission 1": [],
+      "Mission 2": [
+        {
+          "file": "B-5_Small.png",
+          "size": "Small"
+        }
+      ],
+      "Mission 3": []
+    }
+  },
+  "bossShip": {
+    "Default": {
+      "art": [],
+      "destroy": []
+    },
+    "Mission 1": {
+      "art": [
+        "boss_ship.png"
+      ],
+      "destroy": [
+        "1.png",
+        "2.png",
+        "3.png",
+        "4.png",
+        "5.png"
+      ]
+    },
+    "Mission 2": {
+      "art": [
+        "boss_shipM2.png"
+      ],
+      "destroy": [
+        "1.png",
+        "2.png",
+        "3.png",
+        "4.png",
+        "5.png"
+      ]
+    },
+    "Mission 3": {
+      "art": [
+        "boss_shipM3.png"
+      ],
+      "destroy": []
+    },
+    "Mission 4": {
+      "art": [
+        "boss_shipM4.png"
+      ],
+      "destroy": []
+    },
+    "Mission X": {
+      "art": [
+        "boss_ship.png",
+        "boss_shipM2.png",
+        "boss_shipM3.1.png",
+        "boss_shipM3.png"
+      ],
+      "destroy": []
+    }
+  },
+  "animation": {
+    "BigBlast": [
+      "1.png",
+      "2.png",
+      "3.png",
+      "4.png",
+      "5.png"
     ]
-  }
+  },
+  "platform": "Platform_01.png"
 }

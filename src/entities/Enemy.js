@@ -1,4 +1,4 @@
-import { ENEMY_TYPES, GAME_HEIGHT, CURRENT_MISSION, ENEMY_ROTATION } from '../config.js';
+import { ENEMY_TYPES, GAME_HEIGHT, ENEMY_ROTATION } from '../config.js';
 
 let idCounter = 0;
 
@@ -165,12 +165,10 @@ export default class Enemy {
     if (this.isAngleWithinCone(targetAngleDeg, cfg.fireConeDegHalf)) {
       const fireChance = cfg.fireChance !== undefined ? cfg.fireChance : 1.0;
       if (Math.random() < fireChance) {
-        const bulletTint = this.isCarrier ? 0x00ddff : 0xffffff;
         this.bulletPool.fire(this.sprite.x, this.sprite.y + 10, clampedAngle, this.cfg.bulletSpeed, {
-          texture: 'bullet_enemy',
+          texture: this.isCarrier ? 'enemy_bullet_1' : 'bullet_enemy',
           damage: 10,
           scale: 0.4,
-          tint: bulletTint,
         });
         this.audio.enemyShoot();
       }

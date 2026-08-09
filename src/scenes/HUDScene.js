@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, TOUCH_CONTROLS } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, TOUCH_CONTROLS, DIFFICULTY } from '../config.js';
 
 const WEAPON_BAND_COLOR = { yellow: '#ffdd44', blue: '#44aaff', red: '#ff4444' };
 
@@ -16,11 +16,27 @@ export default class HUDScene extends Phaser.Scene {
       fontFamily: 'Arial', fontSize: '18px', color: '#ffffff',
     });
 
+    this.missionText = this.add.text(GAME_WIDTH / 2, 10, `MISSION ${this.gameScene.missionNumber}`, {
+      fontFamily: 'Arial', fontSize: '14px', color: '#3a7a8a', letterSpacing: 2,
+    }).setOrigin(0.5, 0);
+
+    // Adaptive-mode tier readout -- only shown when GameScene started in
+    // 'adaptive' difficulty (see AdaptiveDifficulty). Sits just below the
+    // mission label.
+    this.adaptiveTierText = this.add.text(GAME_WIDTH / 2, 28, '', {
+      fontFamily: 'Arial', fontSize: '12px', color: '#3aff9a', letterSpacing: 1,
+    }).setOrigin(0.5, 0).setVisible(this.gameScene.isAdaptive);
+
     this.livesText = this.add.text(GAME_WIDTH - 12, 10, 'LIVES 3', {
       fontFamily: 'Arial', fontSize: '18px', color: '#ffffff',
     }).setOrigin(1, 0);
 
-    this.weaponText = this.add.text(GAME_WIDTH - 12, 34, 'YELLOW LV.1', {
+    // Placeholder text/color -- replaced immediately below by setWeaponText()
+    // reading the player's actual starting state, since the initial
+    // 'weapon-changed' emit from GameScene.create() races this scene's own
+    // launch (scene.launch() is queued, not synchronous) and can arrive
+    // before this listener even exists, leaving a stale hardcoded guess.
+    this.weaponText = this.add.text(GAME_WIDTH - 12, 34, '', {
       fontFamily: 'Arial', fontSize: '14px', color: '#ffdd44',
     }).setOrigin(1, 0);
 
@@ -73,6 +89,16 @@ export default class HUDScene extends Phaser.Scene {
     g.on('boss-phase-changed', () => this.flashBossPhase());
     g.on('pause-changed', (paused) => this.pausedText.setVisible(paused));
     g.on('mute-changed', (muted) => this.muteText.setText(muted ? 'MUTED' : ''));
+    g.on('difficulty-tier-changed', (tierKey) => this.setAdaptiveTierText(tierKey));
+
+    if (this.gameScene.isAdaptive) {
+      this.adaptiveTierText.setText(`ADAPTIVE: ${this.gameScene.diffCfg.label}`);
+    }
+
+    // Read initial state directly instead of relying on GameScene's initial
+    // emit -- scene.launch() is async, so that emit can fire before this
+    // scene (and its listeners above) even exists.
+    this.setWeaponText(this.gameScene.player.weaponLevel, this.gameScene.player.bulletColor);
     g.on('rocket-power-changed', (active) => this.rocketText.setText(active ? 'ROCKET ONLINE' : ''));
     g.on('shield-changed', (active) => this.shieldText.setText(active ? 'SHIELD UP' : ''));
     g.on('bomb-count-changed', (count) => this.bombText.setText(`BOMBS ${count}`));
@@ -105,6 +131,10 @@ export default class HUDScene extends Phaser.Scene {
     makeButton(TOUCH_CONTROLS.empButton, 'EMP', 0x88ffcc, () => this.gameScene.player.useEmp());
   }
 
+  setAdaptiveTierText(tierKey) {
+    this.adaptiveTierText.setText(`ADAPTIVE: ${DIFFICULTY[tierKey].label}`);
+  }
+
   setWeaponText(level, color = 'blue') {
     this.weaponText.setText(`${color.toUpperCase()} LV.${level}`);
     this.weaponText.setColor(WEAPON_BAND_COLOR[color] || WEAPON_BAND_COLOR.blue);
@@ -120,6 +150,7 @@ export default class HUDScene extends Phaser.Scene {
     this.bossBarBg.setVisible(true);
     this.bossBarFg.setVisible(true);
     this.bossLabel.setVisible(true);
+    this.missionText.setVisible(false);
     this.setBossBar(hp, maxHp);
   }
 
@@ -130,6 +161,7 @@ export default class HUDScene extends Phaser.Scene {
       this.bossBarBg.setVisible(false);
       this.bossBarFg.setVisible(false);
       this.bossLabel.setVisible(false);
+      this.missionText.setVisible(true);
     }
   }
 
