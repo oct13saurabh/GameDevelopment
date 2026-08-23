@@ -5,13 +5,14 @@ import { createBossPattern } from './bossPatterns/index.js';
 const ENTRY_Y = 120;
 
 export default class Boss {
-  constructor(scene, enemyBulletPool, juice, audio, spawnMinion, spriteGroup = null, missionHp = null, missionNumber = 1, spawnMine = null) {
+  constructor(scene, enemyBulletPool, juice, audio, spawnMinion, spriteGroup = null, missionHp = null, missionNumber = 1, spawnMine = null, spawnMeteor = null) {
     this.scene = scene;
     this.bulletPool = enemyBulletPool;
     this.juice = juice;
     this.audio = audio;
     this.spawnMinion = spawnMinion;
     this.spawnMine = spawnMine;
+    this.spawnMeteor = spawnMeteor;
 
     this.hp = missionHp !== null ? missionHp : BOSS.hp;
     this.maxHp = this.hp;
@@ -24,7 +25,16 @@ export default class Boss {
     this.entering = true;
     this.telegraphing = false;
 
-    this.pattern = createBossPattern(getMissionConfig(missionNumber).bossPattern, this);
+    // Per-mission phase-transition thresholds (fraction of maxHp at which
+    // phase N+1 begins) and per-phase sweep speeds -- default to the
+    // original hardcoded 3-phase shape; missions can override with more/
+    // fewer phases (see Mission 4's 4-phase bossPhaseThresholds/bossSweepSpeeds
+    // in missions/Missions.js) with no other Boss.js changes needed.
+    const missionConfig = getMissionConfig(missionNumber);
+    this.phaseThresholds = missionConfig.bossPhaseThresholds || [BOSS.phase2HpFraction, BOSS.phase3HpFraction];
+    this.sweepSpeeds = missionConfig.bossSweepSpeeds || [70, 130, 170];
+
+    this.pattern = createBossPattern(missionConfig.bossPattern, this);
 
     this.sprite = scene.physics.add.image(GAME_WIDTH / 2, -150, 'ship_boss');
     // Physics groups reset velocity to their (zero) defaults when a sprite is
@@ -65,18 +75,17 @@ export default class Boss {
     }
 
     // Horizontal sweep -- faster each phase.
-    const sweepSpeed = this.phase === 1 ? 70 : this.phase === 2 ? 130 : 170;
+    const sweepSpeed = this.sweepSpeeds[Math.min(this.phase - 1, this.sweepSpeeds.length - 1)];
     const margin = this.sprite.displayWidth / 2 + 10;
     if (this.sprite.x > GAME_WIDTH - margin) this.moveDir = -1;
     if (this.sprite.x < margin) this.moveDir = 1;
     this.sprite.body.setVelocityX(this.moveDir * sweepSpeed);
 
-    // Phase transitions.
-    if (this.phase === 1 && this.hp <= this.maxHp * BOSS.phase2HpFraction) {
-      this.phase = 2;
-      this.scene.appEvents.emit('boss-phase-changed', this.phase);
-    } else if (this.phase === 2 && this.hp <= this.maxHp * BOSS.phase3HpFraction) {
-      this.phase = 3;
+    // Phase transitions -- advances one phase per threshold crossed
+    // (phaseThresholds[phase-1] is the fraction that ends the current phase).
+    const nextThreshold = this.phaseThresholds[this.phase - 1];
+    if (nextThreshold !== undefined && this.hp <= this.maxHp * nextThreshold) {
+      this.phase++;
       this.scene.appEvents.emit('boss-phase-changed', this.phase);
     }
 

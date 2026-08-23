@@ -22,6 +22,13 @@
       ],
       "Mission 3": [
         "EM-2.png"
+      ],
+      "Mission 4": [
+        "EM-1.png",
+        "EM-2.png"
+      ],
+      "Mission 5": [
+        "EM_4.png"
       ]
     },
     "EnemyPowerUpDrop": {
@@ -31,30 +38,33 @@
         "Enemy_1_b_r4.png"
       ],
       "Mission 1": [
-        "EnemyM1_1.png",
-        "EnemyM1_2.png",
-        "EnemyM1_4.png"
+        "Enemy1_Blast2.png",
+        "Enemy2_Missle2.png",
+        "Enemy3_Homing3.png"
       ],
       "Mission 2": [
-        "EnemyM2_1.png",
-        "EnemyM2_2.png",
-        "EnemyM2_4.png"
+        "Enemy1_Spread2.png",
+        "Enemy2_Burst3.png",
+        "Enemy3_Mine2.png"
       ],
       "Mission 3": [
-        "EnemyM3_1.png",
-        "EnemyM3_2.png",
-        "EnemyM3_3.png"
+        "Enemy1_Homing2.png",
+        "Enemy2_Missle1.png",
+        "Enemy3_Blast3.png"
       ],
       "Mission 4": [
-        "EnemyM4_1.png",
-        "EnemyM4_2.png",
-        "EnemyM4_3.png",
-        "EnemyM4_4.png"
+        "Enemy1_Mine3.png",
+        "Enemy2_Spread3.png",
+        "Enemy3_Burst2.png"
       ],
       "Mission 5": [
         "EnemyM5_1.png",
         "EnemyM5_2.png",
         "EnemyM5_3.png"
+      ],
+      "Mission 6": [
+        "Enemy1.png",
+        "Enemy2.png"
       ]
     }
   },
@@ -204,6 +214,10 @@
       "art": [
         "boss_shipM4.png"
       ],
+      "destroy": []
+    },
+    "Mission 5": {
+      "art": [],
       "destroy": []
     },
     "Mission X": {
