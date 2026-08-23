@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, ENVIRONMENT_OBJECTS, DIFFICULTY, ADAPTIVE, ENEMY_TYPES, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, ENVIRONMENT_OBJECTS, MISSION_BACKDROP, DIFFICULTY, ADAPTIVE, ENEMY_TYPES, MID_BOSS, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
 import { getMissionConfig } from '../missions/Missions.js';
 import { getPrefs } from '../systems/PlayerPrefs.js';
 import Starfield from '../systems/Starfield.js';
@@ -12,6 +12,7 @@ import Meteor from '../entities/Meteor.js';
 import Train from '../entities/Train.js';
 import PowerUp from '../entities/PowerUp.js';
 import Boss from '../entities/Boss.js';
+import MidBoss from '../entities/MidBoss.js';
 import Missile from '../entities/Missile.js';
 import Mine from '../entities/bossPatterns/Mine.js';
 import EnemyMissile from '../entities/bossPatterns/EnemyMissile.js';
@@ -112,6 +113,12 @@ export default class GameScene extends Phaser.Scene {
     this.spaceStations = [];
     this.backgroundStations = [];
     this.boss = null;
+    this.midBoss = null;
+    // Mission 5's mid-boss encounter (see spawnMidBoss) -- true for its
+    // whole lifetime (spawn to kill/enrage-destroy), read by spawnEnemy/
+    // spawnMeteor below to pause heavy/elite enemies and all meteor spawns
+    // while it's active.
+    this.midBossActive = false;
     this.missionEnded = false;
     // Both start false so the mission-start HUD sync below (weaponLevel is
     // already 1 on a fresh Player) doesn't trigger a guaranteed weapon drop --
@@ -160,6 +167,7 @@ export default class GameScene extends Phaser.Scene {
       spawnEnemyMissile: (x, y) => this.spawnEnemyMissile(x, y),
       spawnMine: (x, y) => this.spawnMine(x, y),
       spawnBoss: () => this.spawnBoss(),
+      spawnMidBoss: () => this.spawnMidBoss(),
       getActiveHostileCount: () => this.getActiveHostileCount(),
       meteorCountMult: this.diffCfg.meteorCountMult,
       enemyCountMult: this.diffCfg.enemyCountMult,
@@ -199,9 +207,16 @@ export default class GameScene extends Phaser.Scene {
     // Mission backdrop image: shows once per mission (not repeating), capped
     // at backgroundMaxDurationMs, and never overlaps with the foreground
     // SpaceStations (see trySpawnBackgroundStation/spawnSpaceStation guards).
+    // EXPERIMENTAL: MISSION_BACKDROP.enabled swaps this one-shot drift-through
+    // for a single endlessly-scrolling backdrop covering the whole mission --
+    // flip that flag off in config.js to revert to the line above unchanged.
     this.backgroundSpawned = false;
     this.backgroundActive = false;
-    this.time.delayedCall(6000, () => this.trySpawnBackgroundStation());
+    if (MISSION_BACKDROP.enabled) {
+      this.startEndlessBackdrop();
+    } else {
+      this.time.delayedCall(6000, () => this.trySpawnBackgroundStation());
+    }
 
     // Random decorative environment objects (planets, etc), independent of
     // the single mission-backdrop above -- spawns repeatedly all mission long.
@@ -426,6 +441,18 @@ export default class GameScene extends Phaser.Scene {
       this.onMissionComplete();
     });
 
+    // Mid-boss is a mid-mission encounter, not the mission-ending boss --
+    // award score/drop on a real kill only (reward=false on enrage-timeout
+    // self-destruct), and just clear the active flags either way. Mission
+    // play continues normally afterward.
+    this.appEvents.on('midboss-killed', (midBoss, reward) => {
+      this.midBossActive = false;
+      if (reward) {
+        this.player.addScore(MID_BOSS.scoreValue);
+        this.maybeDropPowerUp(midBoss.sprite ? midBoss.sprite.x : 0, midBoss.sprite ? midBoss.sprite.y : 0, 1);
+      }
+    });
+
     this.appEvents.on('player-died', () => {
       this.onPlayerDied();
     });
@@ -574,6 +601,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.takeDamage(MEGA_BLAST.damage);
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.takeDamage(MEGA_BLAST.damage);
+    }
   }
 
   // Smart bomb detonation (see Player.useBomb): same wipe shape as
@@ -607,6 +637,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.takeDamage(BOMB_POWERUP.damage);
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.takeDamage(BOMB_POWERUP.damage);
+    }
     this.enemyBullets.killAll();
   }
 
@@ -634,6 +667,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.stunnedUntil = stunnedUntil;
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.stunnedUntil = stunnedUntil;
+    }
     this.enemyBullets.killAll();
   }
 
@@ -644,6 +680,7 @@ export default class GameScene extends Phaser.Scene {
   // trash target near spawn instead of ever visibly striking the boss.
   findNearestHostile(x, y) {
     if (this.boss && this.boss.alive && this.boss.sprite) return this.boss;
+    if (this.midBoss && this.midBoss.alive && this.midBoss.sprite) return this.midBoss;
 
     let nearest = null;
     let nearestDist = Infinity;
@@ -707,6 +744,30 @@ export default class GameScene extends Phaser.Scene {
     return this.activeDecorationSizes().some((size) => size === 'Big');
   }
 
+  // EXPERIMENTAL, see MISSION_BACKDROP in config.js. Picks one backdrop entry
+  // for the whole mission and scrolls it endlessly via tilePositionY (see
+  // update()) instead of the one-shot BackgroundStation drift-through.
+  startEndlessBackdrop() {
+    const plan = this.registry.get('availableBackgrounds') || [];
+    if (!plan.length) return;
+    const entry = Phaser.Utils.Array.GetRandom(plan);
+    this.endlessBackdrop = this.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, entry.key);
+    this.endlessBackdrop.setDepth(MISSION_BACKDROP.depth);
+    this.endlessBackdrop.setAlpha(MISSION_BACKDROP.alpha);
+
+    // Art's content band sits centered horizontally with empty margins each
+    // side -- zoom in and re-center the tile window on the source image's
+    // horizontal middle so those margins scroll off both edges instead of
+    // showing.
+    const zoom = MISSION_BACKDROP.zoomX;
+    this.endlessBackdrop.setTileScale(zoom, zoom);
+    const tex = this.textures.get(entry.key);
+    const srcWidth = (tex && tex.key !== '__MISSING') ? tex.getSourceImage().width : GAME_WIDTH;
+    this.endlessBackdrop.tilePositionX = (srcWidth - GAME_WIDTH / zoom) / 2;
+
+    this.backgroundActive = true;
+  }
+
   spawnBackgroundStation() {
     if (this.missionEnded) return;
     const plan = this.registry.get('availableBackgrounds') || [];
@@ -739,8 +800,15 @@ export default class GameScene extends Phaser.Scene {
     // Big/Medium/Small all sit behind the backdrop and would be invisible/
     // visually noisy against it, so they're excluded outright rather than
     // just deprioritized.
+    // EXPERIMENTAL: under MISSION_BACKDROP.enabled the backdrop sits behind
+    // every environment depth (-9 vs -7/-5), so all sizes -- VerySmall
+    // included -- read fine on top of it; use the full pool instead of
+    // either of the old backdrop/no-backdrop branches. Revert via the
+    // config flag, those two branches go back to the old behavior unchanged.
     let pool;
-    if (this.backgroundActive) {
+    if (MISSION_BACKDROP.enabled) {
+      pool = this.onlySmallAllowed() ? plan.filter((e) => e.size === 'Small') : plan;
+    } else if (this.backgroundActive) {
       pool = plan.filter((e) => e.size === 'VerySmall');
     } else {
       const notVerySmall = plan.filter((e) => e.size !== 'VerySmall');
@@ -788,6 +856,12 @@ export default class GameScene extends Phaser.Scene {
     if (this.waveManager.meteorShowerActive && Math.random() < this.waveManager.meteorShowerConfig.enemyThinning) {
       return null;
     }
+    // While the Mission 5 mid-boss is active, heavy/elite enemies stand down
+    // so it stays the toughest thing on screen -- light fodder keeps
+    // spawning normally (see spawnMidBoss).
+    if (this.midBossActive && (typeKey === 'heavy' || typeKey === 'elite')) {
+      return null;
+    }
     const cfg = ENEMY_TYPES[typeKey];
     const poolKey = cfg && cfg.alwaysDropsPowerUp ? 'powerUpDrop' : 'random';
     const designs = this.registry.get('enemyDesigns') || {};
@@ -805,6 +879,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnMeteor(x, y) {
+    // Meteors stand down entirely while the mid-boss is active (see
+    // spawnMidBoss) -- covers the ambient trickle, timeline meteor waves,
+    // and the dedicated meteor-shower event all at this one call site.
+    if (this.midBossActive) return null;
     const meteor = new Meteor(this, this.juice, this.audio, x, y, this.meteorSpriteGroup);
     meteor.hp = Math.round(meteor.hp * this.diffCfg.hpMult);
     this.meteors.push(meteor);
@@ -921,10 +999,22 @@ export default class GameScene extends Phaser.Scene {
     this.boss.maxHp = Math.round(this.boss.maxHp * this.diffCfg.hpMult);
   }
 
+  // Mission 5's mid-boss (see WaveManager.buildMission5Timeline's timed
+  // spawnMidBoss step) -- independent of the real end-of-mission boss's
+  // "all waves done + field clear" gate, it just fires once at a scripted
+  // point in the timeline.
+  spawnMidBoss() {
+    this.midBoss = new MidBoss(this, this.enemyBullets, this.juice, this.audio, this.bossSpriteGroup);
+    this.midBoss.hp = Math.round(this.midBoss.hp * this.diffCfg.hpMult);
+    this.midBoss.maxHp = Math.round(this.midBoss.maxHp * this.diffCfg.hpMult);
+    this.midBossActive = true;
+  }
+
   getActiveHostileCount() {
     const e = this.enemies.filter((x) => x.alive).length;
     const m = this.meteors.filter((x) => x.alive).length;
-    return e + m;
+    const mb = this.midBoss && this.midBoss.alive ? 1 : 0;
+    return e + m + mb;
   }
 
   onMissionComplete() {
@@ -989,6 +1079,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.isAdaptive) this.adaptiveDifficulty.update(dt, this.player.score);
 
     this.starfield.update(dt);
+    if (this.endlessBackdrop) {
+      this.endlessBackdrop.tilePositionY -= (MISSION_BACKDROP.scrollSpeed * dt) / 1000;
+    }
     this.player.update(time, dt);
 
     for (const enemy of this.enemies) enemy.update(time, dt);
@@ -1002,6 +1095,7 @@ export default class GameScene extends Phaser.Scene {
     for (const bg of this.backgroundStations) bg.update(time, dt);
     for (const obj of this.environmentObjects) obj.update(time, dt);
     if (this.boss) this.boss.update(time, dt);
+    if (this.midBoss) this.midBoss.update(time, dt);
 
     this.enemies = this.enemies.filter((e) => e.alive);
     this.meteors = this.meteors.filter((m) => m.alive);
@@ -1017,6 +1111,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.stationTimer) this.stationTimer.paused = false;
     }
     if (this.boss && !this.boss.alive) this.boss = null;
+    if (this.midBoss && !this.midBoss.alive) this.midBoss = null;
 
     this.waveManager.update(time, dt);
   }

@@ -193,6 +193,21 @@ export default class BootScene extends Phaser.Scene {
       break;
     }
 
+    // Mission 5's mid-boss art -- a separate texture key from 'ship_boss'
+    // since the mid-boss and the real end-of-mission boss can both exist in
+    // the same mission (unlike the main boss's one-texture-per-mission hot
+    // swap above). Folder is "Mission N Mid-Boss", a sibling of "Mission N"
+    // under BossShip/ (see rebuild-manifest), not nested inside it, so
+    // scanBossFolders picks it up as its own entry with no generator changes.
+    if (this.textures.exists('ship_boss_mid')) this.textures.remove('ship_boss_mid');
+    this.hasMidBoss = false;
+    const midBossEntry = bossByFolder[`Mission ${missionNumber} Mid-Boss`] || {};
+    const midBossFiles = midBossEntry.art || [];
+    if (midBossFiles.length) {
+      this.load.image('ship_boss_mid', `${ROOT}/BossShip/Mission ${missionNumber} Mid-Boss/${midBossFiles[0]}`);
+      this.hasMidBoss = true;
+    }
+
     for (const ship of manifest.playerShip || []) {
       const key = this.playerShipKey(ship.name, ship.idle);
       this.load.image(`${key}_idle`, `${ROOT}/PlayerShip/${ship.idle}`);
@@ -355,6 +370,10 @@ export default class BootScene extends Phaser.Scene {
     this.trainKeys.forEach((key) => this.bakeCrisp(key, 250));
     this.bakeCrisp('ship_boss', 400);
     for (let i = 1; i <= 5; i++) this.bakeCrisp(`ship_boss_destroy_${i}`, 400);
+    // Half the main boss's bake width -- matches MID_BOSS.scale being half
+    // BOSS.scale, so the mid-boss's texture isn't oversized for how small it
+    // actually renders.
+    if (this.hasMidBoss) this.bakeCrisp('ship_boss_mid', 200);
     for (const key of this.trainKeys) {
       for (let i = 1; i <= 5; i++) this.bakeCrisp(`${key}_destroy_${i}`, 250);
     }

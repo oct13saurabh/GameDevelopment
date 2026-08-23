@@ -18,7 +18,7 @@ import { getMeteorShowerConfig, getMissionConfig } from '../missions/Missions.js
 export default class WaveManager {
   constructor(scene, {
     spawnEnemy, spawnMeteor, spawnBoss, getActiveHostileCount, missionNumber = 1,
-    spawnEnemyMissile = null, spawnMine = null,
+    spawnEnemyMissile = null, spawnMine = null, spawnMidBoss = null,
     meteorCountMult = 1, enemyCountMult = 1, waveIntervalMult = 1, bonusSpawnPerWave = 0,
   }) {
     this.scene = scene;
@@ -27,6 +27,7 @@ export default class WaveManager {
     this.spawnBoss = spawnBoss;
     this.spawnEnemyMissile = spawnEnemyMissile;
     this.spawnMine = spawnMine;
+    this.spawnMidBoss = spawnMidBoss;
     this.getActiveHostileCount = getActiveHostileCount;
     this.meteorCountMult = meteorCountMult;
     this.enemyCountMult = enemyCountMult;
@@ -79,6 +80,7 @@ export default class WaveManager {
   // waveDragonflySquadron/waveEmberGauntlet below) instead of just repeating
   // Mission 1's mix faster.
   buildTimeline() {
+    if (this.missionNumber === 5) return this.buildMission5Timeline();
     if (this.missionNumber === 4) return this.buildMission4Timeline();
     if (this.missionNumber === 3) return this.buildMission3Timeline();
     if (this.missionNumber === 2) return this.buildMission2Timeline();
@@ -239,6 +241,58 @@ export default class WaveManager {
       // fires 'boss-warning' (missions/Missions.js's bossWarning flag) and
       // holds a quiet beat before the boss actually enters.
       { t: 140000, run: () => {} },
+    ];
+  }
+
+  // Mission 5's pre-boss timeline: builds on Mission 4's density, and adds a
+  // one-shot Mid-Boss encounter (src/entities/MidBoss.js) roughly 55% through
+  // -- a self-contained timed fight (own machine-gun/missile attacks, own
+  // enrage-on-timeout) dropped into the middle of otherwise-normal waves.
+  // GameScene.spawnEnemy/spawnMeteor read GameScene.midBossActive to pause
+  // heavy/elite spawns and all meteor spawns while it's alive, so it stands
+  // out from the surrounding wave content without fully clearing the field
+  // the way the real end-of-mission boss gate does.
+  buildMission5Timeline() {
+    return [
+      { t: 500, run: () => this.waveStraightLine() },
+      { t: 5000, run: () => this.waveScoutFlurry() },
+      { t: 9500, run: () => this.waveSineColumns() },
+      { t: 14000, run: () => this.waveHornetSwarm() },
+      { t: 18500, run: () => this.waveCrossfire() },
+      { t: 23000, run: () => this.waveDragonflySquadron() },
+      { t: 28000, run: () => this.waveMeteorField(6) },
+      { t: 33000, run: () => this.waveSwarmStorm() },
+      { t: 38000, run: () => this.waveMissileIntro(3) },
+      { t: 43000, run: () => this.waveEliteWall() },
+      { t: 49000, run: () => this.waveMineZone(4) },
+      { t: 55000, run: () => this.waveMeteorField(7) },
+      { t: 61000, run: () => this.waveSniperDuo() },
+      { t: 66000, run: () => this.waveSwarmPincer() },
+      { t: 71000, run: () => this.waveFinalGauntlet() },
+
+      // ~55% through the pre-boss timeline -- the Mid-Boss encounter.
+      // Regular waves keep running around it (only heavy/elite + meteors
+      // pause, see GameScene.spawnEnemy/spawnMeteor); it resolves itself
+      // (killed, or enrage-timeout) well before the timeline ends.
+      { t: 78000, run: () => { if (this.spawnMidBoss) this.spawnMidBoss(); } },
+
+      { t: 84000, run: () => this.waveScoutFlurry() },
+      { t: 89000, run: () => this.waveHornetSwarm() },
+      { t: 94000, run: () => this.waveMissileIntro(3) },
+      { t: 99000, run: () => this.waveDragonflyPair() },
+      { t: 104000, run: () => this.waveMineZone(5) },
+      { t: 109000, run: () => this.waveMeteorField(8) },
+      { t: 114000, run: () => this.waveCrossfire() },
+      { t: 119000, run: () => this.waveEliteWall() },
+      { t: 125000, run: () => this.waveSwarmStorm() },
+      { t: 130000, run: () => this.waveFinalGauntlet() },
+      { t: 136000, run: () => this.waveMineZone(6) },
+      { t: 141000, run: () => this.waveMeteorField(9) },
+      { t: 146000, run: () => this.waveEliteEscort() },
+
+      // Boss Arrival -- same "no more spawns, wait for field clear, warn,
+      // then spawn" beat as Mission 4 (see update()).
+      { t: 150000, run: () => {} },
     ];
   }
 

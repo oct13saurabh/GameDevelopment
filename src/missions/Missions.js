@@ -164,6 +164,45 @@ export const MISSIONS = {
       enemyThinning: 0.35,
     },
   },
+
+  5: {
+    powerUps: {
+      allowedTypes: ['weapon', 'health', 'rocket', 'shield', 'bomb', 'emp', 'life'],
+    },
+
+    shipHp: {
+      basic: 26,
+      fast: 18,
+      heavy: 75,
+      sniper: 31,
+      swarm: 11,
+      elite: 95,
+      scout: 13,
+      hornet: 15,
+      dragonfly: 24,
+      carrier: 36,
+      boss: 8000,
+    },
+
+    environmentSpawnChance: 0.35,
+
+    // Reuses Mission 1's pattern for the real end-of-mission boss for now --
+    // Mission 5's own end boss theme is separate future work from the
+    // mid-boss encounter (WaveManager.buildMission5Timeline's spawnMidBoss
+    // step) this mission introduces.
+    bossPattern: 1,
+
+    bossWarning: true,
+
+    meteorShower: {
+      enabled: true,
+      triggerAtFraction: 0.4,
+      durationMs: 10000,
+      count: 18,
+      intervalMs: 380,
+      enemyThinning: 0.4,
+    },
+  },
 };
 
 export function getMissionConfig(missionNumber) {

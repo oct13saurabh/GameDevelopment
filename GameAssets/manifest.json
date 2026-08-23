@@ -71,33 +71,15 @@
   "train": {
     "Train_01": {
       "art": "Train_01.png",
-      "destroy": [
-        "1.png",
-        "2.png",
-        "3.png",
-        "4.png",
-        "5.png"
-      ]
+      "destroy": []
     },
     "Train_02": {
       "art": "Train_02.png",
-      "destroy": [
-        "1.png",
-        "2.png",
-        "3.png",
-        "4.png",
-        "5.png"
-      ]
+      "destroy": []
     },
     "Train_03": {
       "art": "Train_03.png",
-      "destroy": [
-        "1.png",
-        "2.png",
-        "3.png",
-        "4.png",
-        "5.png"
-      ]
+      "destroy": []
     }
   },
   "playerShip": [
@@ -130,13 +112,13 @@
   "background": {
     "Mission 1": [
       {
-        "file": "Blackhole_Big.png",
-        "size": "Big"
+        "file": "Background_1.png",
+        "size": "Medium"
       }
     ],
     "Mission 2": [
       {
-        "file": "B-2.png",
+        "file": "Background_2.png",
         "size": "Medium"
       }
     ],
@@ -146,8 +128,28 @@
         "size": "Medium"
       }
     ],
+    "Mission 4": [
+      {
+        "file": "Background_4.png",
+        "size": "Medium"
+      }
+    ],
+    "Mission 5": [
+      {
+        "file": "Background_5.png",
+        "size": "Medium"
+      }
+    ],
     "environment": {
       "Default": [
+        {
+          "file": "B-5_Small.png",
+          "size": "Small"
+        },
+        {
+          "file": "Blackhole_Big.png",
+          "size": "Big"
+        },
         {
           "file": "P-1_Medium.png",
           "size": "Medium"
@@ -166,12 +168,7 @@
         }
       ],
       "Mission 1": [],
-      "Mission 2": [
-        {
-          "file": "B-5_Small.png",
-          "size": "Small"
-        }
-      ],
+      "Mission 2": [],
       "Mission 3": []
     }
   },
@@ -217,7 +214,15 @@
       "destroy": []
     },
     "Mission 5": {
-      "art": [],
+      "art": [
+        "boss_shipM5.png"
+      ],
+      "destroy": []
+    },
+    "Mission 5 Mid-Boss": {
+      "art": [
+        "boss_shipM5_mid.png"
+      ],
       "destroy": []
     },
     "Mission X": {

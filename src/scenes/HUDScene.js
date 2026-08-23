@@ -96,6 +96,12 @@ export default class HUDScene extends Phaser.Scene {
     g.on('boss-spawned', (hp, maxHp) => this.showBossBar(hp, maxHp));
     g.on('boss-health-changed', (hp, maxHp) => this.setBossBar(hp, maxHp));
     g.on('boss-phase-changed', () => this.flashBossPhase());
+    // Mission 5's mid-boss reuses the same health-bar UI as the real boss
+    // (see MidBoss.js) -- they never coexist on screen, so no separate bar
+    // is needed, just a relabel while it's up.
+    g.on('midboss-spawned', (hp, maxHp) => { this.bossLabel.setText('MID-BOSS'); this.showBossBar(hp, maxHp); });
+    g.on('midboss-health-changed', (hp, maxHp) => this.setMidBossBar(hp, maxHp));
+    g.on('midboss-selfdestruct-warning', () => this.showMidBossEnrageWarning());
     g.on('pause-changed', (paused) => this.pausedText.setVisible(paused));
     g.on('mute-changed', (muted) => this.muteText.setText(muted ? 'MUTED' : ''));
     g.on('difficulty-tier-changed', (tierKey) => this.setAdaptiveTierText(tierKey));
@@ -190,5 +196,27 @@ export default class HUDScene extends Phaser.Scene {
 
   flashBossPhase() {
     this.cameras.main.flash(200, 255, 60, 60);
+  }
+
+  // Same bar-hide behavior as setBossBar, but also resets the shared label
+  // back to 'BOSS' once the mid-boss's bar hides so a later real boss spawn
+  // doesn't inherit the 'MID-BOSS' text (see midboss-spawned above).
+  setMidBossBar(hp, maxHp) {
+    this.setBossBar(hp, maxHp);
+    if (hp <= 0) this.bossLabel.setText('BOSS');
+  }
+
+  // Mid-boss enrage-timeout countdown cue (MID_BOSS.enrageWarningMs before
+  // MidBoss.enrage fires) -- reuses the same warning banner as the real
+  // boss-incoming warning, with different text, then restores that text so
+  // a later real boss-warning still reads correctly.
+  showMidBossEnrageWarning() {
+    const originalText = this.warningText.text;
+    this.warningText.setText('MID-BOSS OVERLOADING\nBRACE FOR DETONATION');
+    this.showBossWarning();
+    this.time.delayedCall(3000, () => {
+      this.hideBossWarning();
+      this.warningText.setText(originalText);
+    });
   }
 }
