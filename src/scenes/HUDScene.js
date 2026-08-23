@@ -79,11 +79,20 @@ export default class HUDScene extends Phaser.Scene {
       fontFamily: 'Arial', fontSize: '12px', color: '#ffdd55',
     });
 
+    // Boss-incoming banner (Mission 4's "enemies stop, screen goes quiet,
+    // warning appears" beat before the boss enters -- see WaveManager's
+    // 'boss-warning' emit, gated on missions/Missions.js's bossWarning flag).
+    this.warningText = this.add.text(GAME_WIDTH / 2, GAME_HEIGHT / 2 - 20, 'WARNING\nMASSIVE HOSTILE SIGNATURE DETECTED', {
+      fontFamily: 'Arial Black, Arial', fontSize: '18px', color: '#ff3333', align: 'center', letterSpacing: 1,
+    }).setOrigin(0.5).setVisible(false).setDepth(100);
+    this._warningBlink = null;
+
     const g = this.gameScene.appEvents;
     g.on('score-changed', (score) => this.scoreText.setText(`SCORE ${score}`));
     g.on('player-lives-changed', (lives) => this.livesText.setText(`LIVES ${Math.max(lives, 0)}`));
     g.on('weapon-changed', (level, color) => this.setWeaponText(level, color));
     g.on('player-health-changed', (hp, maxHp) => this.setHealthBar(hp, maxHp));
+    g.on('boss-warning', () => this.showBossWarning());
     g.on('boss-spawned', (hp, maxHp) => this.showBossBar(hp, maxHp));
     g.on('boss-health-changed', (hp, maxHp) => this.setBossBar(hp, maxHp));
     g.on('boss-phase-changed', () => this.flashBossPhase());
@@ -146,7 +155,21 @@ export default class HUDScene extends Phaser.Scene {
     this.healthBarFg.fillColor = pct > 0.5 ? 0x33cc33 : pct > 0.25 ? 0xdddd33 : 0xdd3333;
   }
 
+  showBossWarning() {
+    this.warningText.setVisible(true).setAlpha(1);
+    this._warningBlink = this.tweens.add({
+      targets: this.warningText, alpha: 0.2, duration: 280, yoyo: true, repeat: -1,
+    });
+    this.cameras.main.flash(200, 255, 30, 30);
+  }
+
+  hideBossWarning() {
+    if (this._warningBlink) { this._warningBlink.remove(); this._warningBlink = null; }
+    this.warningText.setVisible(false);
+  }
+
   showBossBar(hp, maxHp) {
+    this.hideBossWarning();
     this.bossBarBg.setVisible(true);
     this.bossBarFg.setVisible(true);
     this.bossLabel.setVisible(true);

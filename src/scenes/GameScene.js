@@ -14,8 +14,36 @@ import PowerUp from '../entities/PowerUp.js';
 import Boss from '../entities/Boss.js';
 import Missile from '../entities/Missile.js';
 import Mine from '../entities/bossPatterns/Mine.js';
+import EnemyMissile from '../entities/bossPatterns/EnemyMissile.js';
 import SpaceStation from '../entities/SpaceStation.js';
 import BackgroundStation from '../entities/BackgroundStation.js';
+
+// Carrier (EnemyPowerUpDrop) spawn formations, cycled round-robin by
+// scheduleNextCarrierSpawn -- each carrier still picks its own random art
+// design (and therefore its own attack pattern, see Enemy.js), these just
+// vary how many/where they enter from.
+const CARRIER_FORMATIONS = [
+  function spawnCarrierSolo() {
+    const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
+    this.spawnEnemy('carrier', x, -40, 'sine');
+  },
+  function spawnCarrierPair() {
+    this.spawnEnemy('carrier', GAME_WIDTH * 0.25, -40, 'sine');
+    this.time.delayedCall(300, () => {
+      if (!this.missionEnded) this.spawnEnemy('carrier', GAME_WIDTH * 0.75, -40, 'sine');
+    });
+  },
+  function spawnCarrierEscort() {
+    const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
+    this.spawnEnemy('carrier', x, -40, 'sine');
+    this.time.delayedCall(400, () => {
+      if (!this.missionEnded) this.spawnEnemy('basic', x - 90, -60, 'straight');
+    });
+    this.time.delayedCall(400, () => {
+      if (!this.missionEnded) this.spawnEnemy('basic', x + 90, -60, 'straight');
+    });
+  },
+];
 
 export default class GameScene extends Phaser.Scene {
   constructor() {
@@ -72,6 +100,15 @@ export default class GameScene extends Phaser.Scene {
     this.trainsSpawned = 0;
     this.powerups = [];
     this.missiles = [];
+    // Pre-boss standalone hazards (Mission 4's Missile Introduction / Mine
+    // Zone waves) -- the same EnemyMissile/Mine entities the boss patterns
+    // use, just spawned directly from WaveManager instead of owned by a
+    // Boss instance. Ticked/filtered here since there's no boss around yet
+    // to own their per-frame update. See spawnEnemyMissile/spawnMine below.
+    this.hazards = [];
+    // EnemyMissile/Mine expect a "boss"-shaped owner (.scene/.audio/.juice) --
+    // this shim lets them spawn without an actual Boss instance existing yet.
+    this.hazardOwner = { scene: this, audio: this.audio, juice: this.juice, alive: true };
     this.spaceStations = [];
     this.backgroundStations = [];
     this.boss = null;
@@ -120,9 +157,14 @@ export default class GameScene extends Phaser.Scene {
     this.waveManager = new WaveManager(this, {
       spawnEnemy: (type, x, y, pattern) => this.spawnEnemy(type, x, y, pattern),
       spawnMeteor: (x, y) => this.spawnMeteor(x, y),
+      spawnEnemyMissile: (x, y) => this.spawnEnemyMissile(x, y),
+      spawnMine: (x, y) => this.spawnMine(x, y),
       spawnBoss: () => this.spawnBoss(),
       getActiveHostileCount: () => this.getActiveHostileCount(),
       meteorCountMult: this.diffCfg.meteorCountMult,
+      enemyCountMult: this.diffCfg.enemyCountMult,
+      waveIntervalMult: this.diffCfg.waveIntervalMult,
+      bonusSpawnPerWave: this.diffCfg.bonusSpawnPerWave,
       missionNumber: this.missionNumber,
     });
 
@@ -192,13 +234,12 @@ export default class GameScene extends Phaser.Scene {
     // Dedicated power-up carrier enemy -- the ONLY source of power-up drops
     // (RandomShips enemies never drop, see the 'enemy-killed' handler
     // below), so it spawns frequently -- only once EnemyPowerUpDrop art
-    // actually exists (see BootScene.buildAvailableEnemyDesigns).
+    // actually exists (see BootScene.buildAvailableEnemyDesigns). Self-
+    // rescheduling (instead of a fixed-delay addEvent) so the cadence varies
+    // and formations cycle instead of the same solo spawn every time.
     if (((this.registry.get('enemyDesigns') || {}).powerUpDrop || []).length) {
-      this.carrierTimer = this.time.addEvent({
-        delay: 6000,
-        loop: true,
-        callback: () => this.spawnCarrier(),
-      });
+      this.carrierFormationIndex = 0;
+      this.scheduleNextCarrierSpawn();
     }
 
     // Kick initial HUD state.
@@ -216,6 +257,8 @@ export default class GameScene extends Phaser.Scene {
   applyAdaptiveTier(tierKey) {
     this.diffCfg = { ...DIFFICULTY[tierKey] };
     this.waveManager.meteorCountMult = this.diffCfg.meteorCountMult;
+    this.waveManager.enemyCountMult = this.diffCfg.enemyCountMult;
+    this.waveManager.bonusSpawnPerWave = this.diffCfg.bonusSpawnPerWave;
     this.appEvents.emit('difficulty-tier-changed', tierKey);
   }
 
@@ -768,6 +811,24 @@ export default class GameScene extends Phaser.Scene {
     return meteor;
   }
 
+  // Pre-boss standalone hazards (Mission 4's Missile Introduction / Mine
+  // Zone waves, see WaveManager.buildMission4Timeline) -- same entities the
+  // boss patterns use (bossPatterns/EnemyMissile.js, bossPatterns/Mine.js),
+  // spawned via this.hazardOwner instead of an actual Boss. Collision
+  // handling is already generic via bossProjectileGroup + sprite.owner (see
+  // setupCollisions), so no other wiring is needed.
+  spawnEnemyMissile(x, y) {
+    const missile = new EnemyMissile(this.hazardOwner, x, y, this.bossProjectileGroup);
+    this.hazards.push(missile);
+    return missile;
+  }
+
+  spawnMine(x, y) {
+    const mine = new Mine(this.hazardOwner, x, y, this.bossProjectileGroup);
+    this.hazards.push(mine);
+    return mine;
+  }
+
   // Applies weapon level/bombs/EMP/lives/health/score carried over from the
   // previous mission (see GameScene.onMissionComplete / GameOverScene.restart)
   // onto the fresh Player this mission just created, instead of leaving it at
@@ -787,10 +848,16 @@ export default class GameScene extends Phaser.Scene {
     p.score = this.carryScore;
   }
 
-  spawnCarrier() {
-    if (this.missionEnded) return;
-    const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
-    this.spawnEnemy('carrier', x, -40, 'sine');
+  // Cycled round-robin (not random) so every formation actually shows up in
+  // rotation, with a randomized cadence (5-8s) between spawns so it doesn't
+  // read as a metronome. See CARRIER_FORMATIONS below.
+  scheduleNextCarrierSpawn() {
+    this.time.delayedCall(Phaser.Math.Between(5000, 8000), () => {
+      if (this.missionEnded) return;
+      CARRIER_FORMATIONS[this.carrierFormationIndex % CARRIER_FORMATIONS.length].call(this);
+      this.carrierFormationIndex++;
+      this.scheduleNextCarrierSpawn();
+    });
   }
 
   // Rare background trickle, hard capped -- see METEOR.ambientSpawnChance/
@@ -847,7 +914,8 @@ export default class GameScene extends Phaser.Scene {
     this.boss = new Boss(this, this.enemyBullets, this.juice, this.audio,
       (x, y) => this.spawnEnemy('fast', x, y, 'straight'),
       this.bossSpriteGroup, missionHp, this.missionNumber,
-      (x, y) => new Mine(this.boss, x, y, this.bossProjectileGroup)
+      (x, y) => new Mine(this.boss, x, y, this.bossProjectileGroup),
+      (x, y) => this.spawnMeteor(x, y)
     );
     this.boss.hp = Math.round(this.boss.hp * this.diffCfg.hpMult);
     this.boss.maxHp = Math.round(this.boss.maxHp * this.diffCfg.hpMult);
@@ -929,6 +997,7 @@ export default class GameScene extends Phaser.Scene {
     for (const powerup of this.powerups) powerup.update(time, dt);
     this.separateWeaponPowerUps();
     for (const missile of this.missiles) missile.update(time, dt);
+    for (const hazard of this.hazards) hazard.update(time);
     for (const station of this.spaceStations) station.update(time, dt);
     for (const bg of this.backgroundStations) bg.update(time, dt);
     for (const obj of this.environmentObjects) obj.update(time, dt);
@@ -939,6 +1008,7 @@ export default class GameScene extends Phaser.Scene {
     this.trains = this.trains.filter((t) => t.alive);
     this.powerups = this.powerups.filter((p) => p.alive);
     this.missiles = this.missiles.filter((m) => m.alive);
+    this.hazards = this.hazards.filter((h) => h.alive);
     this.spaceStations = this.spaceStations.filter((s) => s.alive);
     this.backgroundStations = this.backgroundStations.filter((s) => s.alive);
     this.environmentObjects = this.environmentObjects.filter((o) => o.alive);

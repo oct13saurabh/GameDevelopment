@@ -60,7 +60,7 @@ export default class Player {
     this.shieldSpriteGroup = scene.physics.add.group();
 
     this.weaponLevel = 1;
-    this.bulletColor = 'blue'; // default bullet tint until a colored weapon power-up is collected
+    this.bulletColor = 'red';
     this.health = PLAYER.startHealth;
     this.maxHealth = PLAYER.startHealth;
     this.lives = PLAYER.startLives;

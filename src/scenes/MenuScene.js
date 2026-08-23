@@ -19,6 +19,11 @@ export default class MenuScene extends Phaser.Scene {
   // still covers true first entry.
   init(data) {
     this.audio = (data && data.audio) ? data.audio : new AudioSystem();
+    // scene.sound is the same SoundManager instance across every Phaser
+    // scene, so handing it over once here covers the whole session --
+    // AudioSystem uses it for real SFX files (GameAssets/Sound), falling
+    // back to the procedural synth if it's not set yet or a key isn't loaded.
+    this.audio.setSoundManager(this.sound);
   }
 
   create() {

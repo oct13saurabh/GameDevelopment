@@ -1,5 +1,5 @@
 import { GAME_WIDTH } from '../config.js';
-import { getMeteorShowerConfig } from '../missions/Missions.js';
+import { getMeteorShowerConfig, getMissionConfig } from '../missions/Missions.js';
 
 // Mission 1 timeline: a sequence of timed spawn steps, followed by a boss
 // once all prior waves are cleared. `spawnEnemy(typeKey, x, y, pattern)`,
@@ -16,13 +16,22 @@ import { getMeteorShowerConfig } from '../missions/Missions.js';
 // meteor-shower event (see scheduleMeteorShower) fires partway through.
 
 export default class WaveManager {
-  constructor(scene, { spawnEnemy, spawnMeteor, spawnBoss, getActiveHostileCount, meteorCountMult = 1, missionNumber = 1 }) {
+  constructor(scene, {
+    spawnEnemy, spawnMeteor, spawnBoss, getActiveHostileCount, missionNumber = 1,
+    spawnEnemyMissile = null, spawnMine = null,
+    meteorCountMult = 1, enemyCountMult = 1, waveIntervalMult = 1, bonusSpawnPerWave = 0,
+  }) {
     this.scene = scene;
     this.spawnEnemy = spawnEnemy;
     this.spawnMeteor = spawnMeteor;
     this.spawnBoss = spawnBoss;
+    this.spawnEnemyMissile = spawnEnemyMissile;
+    this.spawnMine = spawnMine;
     this.getActiveHostileCount = getActiveHostileCount;
     this.meteorCountMult = meteorCountMult;
+    this.enemyCountMult = enemyCountMult;
+    this.waveIntervalMult = waveIntervalMult;
+    this.bonusSpawnPerWave = bonusSpawnPerWave;
 
     this.elapsed = 0;
     this.stepIndex = 0;
@@ -39,8 +48,29 @@ export default class WaveManager {
     this.meteorShowerConfig = getMeteorShowerConfig(missionNumber);
     this.missionNumber = missionNumber;
 
-    this.steps = this.buildTimeline();
+    // waveIntervalMult scales every step's timestamp -- <1 pulls steps
+    // earlier so waves overlap more (busier screen), >1 spreads them out.
+    this.steps = this.buildTimeline().map((step) => ({ ...step, t: Math.round(step.t * this.waveIntervalMult) }));
     this.missionDurationMs = this.steps[this.steps.length - 1].t;
+  }
+
+  // Scales a wave's raw spawn-loop count by enemyCountMult, rounding to at
+  // least 1 -- used by the pure-count waves below (fixed-formation waves
+  // like waveVFormation/waveCrossfire are left at their literal array
+  // lengths since scaling them would break the formation shape).
+  scaleCount(n) {
+    return Math.max(1, Math.round(n * this.enemyCountMult));
+  }
+
+  // Extra generic enemies dropped in alongside every wave step (formation
+  // waves included) so raising bonusSpawnPerWave densifies every wave, not
+  // just the pure-count ones scaleCount touches.
+  spawnBonusEnemies() {
+    for (let i = 0; i < this.bonusSpawnPerWave; i++) {
+      const x = Phaser.Math.Between(30, GAME_WIDTH - 30);
+      const type = Phaser.Utils.Array.GetRandom(['basic', 'fast']);
+      this.scene.time.delayedCall(i * 250, () => this.spawnEnemy(type, x, -40, 'straight'));
+    }
   }
 
   // Each mission gets its own timeline (not just a tempo multiplier on
@@ -49,6 +79,7 @@ export default class WaveManager {
   // waveDragonflySquadron/waveEmberGauntlet below) instead of just repeating
   // Mission 1's mix faster.
   buildTimeline() {
+    if (this.missionNumber === 4) return this.buildMission4Timeline();
     if (this.missionNumber === 3) return this.buildMission3Timeline();
     if (this.missionNumber === 2) return this.buildMission2Timeline();
     return this.buildMission1Timeline();
@@ -156,12 +187,105 @@ export default class WaveManager {
     ];
   }
 
+  // Mission 4's pre-boss timeline (0:00-2:20) gradually introduces the
+  // mechanics the boss later combines: basic enemies -> a dedicated meteor
+  // field -> missiles -> mines -> a final assault mixing everything (but
+  // stopping short of full bullet hell). See the mission design doc for the
+  // exact beat breakdown; timestamps below target that same ~2:20 length.
+  buildMission4Timeline() {
+    return [
+      // 0:00-0:30 -- Enemy Wave: basic ships only, no major threats yet.
+      { t: 500, run: () => this.waveStraightLine() },
+      { t: 5500, run: () => this.waveScoutFlurry() },
+      { t: 11000, run: () => this.waveSineColumns() },
+      { t: 17000, run: () => this.waveStraightLine() },
+      { t: 23000, run: () => this.waveVFormation() },
+
+      // 0:30-1:00 -- Meteor Field: meteors get frequent while enemies keep
+      // attacking around the player navigating the field.
+      { t: 30000, run: () => this.waveMeteorField(6) },
+      { t: 36000, run: () => this.waveScoutFlurry() },
+      { t: 42000, run: () => this.waveMeteorField(7) },
+      { t: 48000, run: () => this.waveSniperLine() },
+      { t: 54000, run: () => this.waveMeteorField(6) },
+
+      // 1:00-1:30 -- Missile Introduction: enemy-launched slow homing
+      // missiles (2-3 per wave), meteor density stays moderate.
+      { t: 60000, run: () => this.waveMissileIntro(2) },
+      { t: 67000, run: () => this.waveHornetSwarm() },
+      { t: 74000, run: () => this.waveMissileIntro(3) },
+      { t: 81000, run: () => this.waveMeteorField(4) },
+      { t: 85000, run: () => this.waveMissileIntro(2) },
+
+      // 1:30-2:00 -- Mine Zone: drifting mines combine with regular bullet
+      // fire; meteor formations get bigger.
+      { t: 90000, run: () => this.waveMineZone(4) },
+      { t: 96000, run: () => this.waveSwarmPincer() },
+      { t: 103000, run: () => this.waveMineZone(5) },
+      { t: 109000, run: () => this.waveMeteorField(9) },
+      { t: 115000, run: () => this.waveMineZone(4) },
+
+      // 2:00-2:20 -- Final Assault: everything escalates together (more
+      // ships, bullet spreads, missiles, mines, meteor groups) but stays
+      // short of full bullet hell -- one big combined wave, not a barrage.
+      { t: 120000, run: () => this.waveFinalGauntlet() },
+      { t: 124000, run: () => this.waveMissileIntro(3) },
+      { t: 128000, run: () => this.waveMineZone(5) },
+      { t: 132000, run: () => this.waveMeteorField(8) },
+      { t: 136000, run: () => this.waveEliteEscort() },
+
+      // 2:20-2:30 -- Boss Arrival: no more spawns after this; WaveManager's
+      // boss-spawn check (see update()) waits for the field to clear, then
+      // fires 'boss-warning' (missions/Missions.js's bossWarning flag) and
+      // holds a quiet beat before the boss actually enters.
+      { t: 140000, run: () => {} },
+    ];
+  }
+
+  // Meteor-dedicated wave (distinct from the ambient trickle and the one-off
+  // meteorShower event) -- staggered burst across the width, count scaled
+  // like the other pure-count waves.
+  waveMeteorField(count) {
+    const n = this.scaleCount(count);
+    for (let i = 0; i < n; i++) {
+      const x = Phaser.Math.Between(30, GAME_WIDTH - 30);
+      this.scene.time.delayedCall(i * 260, () => this.spawnMeteor(x, -40));
+    }
+  }
+
+  // Enemy-launched slow homing missiles (bossPatterns/EnemyMissile.js,
+  // spawned via GameScene.spawnEnemyMissile/hazardOwner) dropping in from
+  // the top alongside a couple of basic escorts, so it reads as enemy ships
+  // firing missiles rather than missiles falling out of nowhere.
+  waveMissileIntro(count) {
+    if (!this.spawnEnemyMissile) return;
+    for (let i = 0; i < count; i++) {
+      const x = 60 + i * ((GAME_WIDTH - 120) / (count - 1 || 1));
+      this.scene.time.delayedCall(i * 400, () => this.spawnEnemyMissile(x, -30));
+    }
+    this.spawnEnemy('basic', GAME_WIDTH * 0.3, -40, 'straight');
+    this.spawnEnemy('basic', GAME_WIDTH * 0.7, -40, 'straight');
+  }
+
+  // Space mines (bossPatterns/Mine.js) dropped across the field alongside
+  // bullet-firing sniper escorts -- "mines + normal bullets" per the spec.
+  waveMineZone(count) {
+    if (!this.spawnMine) return;
+    for (let i = 0; i < count; i++) {
+      const x = 40 + i * ((GAME_WIDTH - 80) / (count - 1 || 1));
+      this.scene.time.delayedCall(i * 300, () => this.spawnMine(x, -30));
+    }
+    this.spawnEnemy('sniper', GAME_WIDTH * 0.25, -40, 'straight');
+    this.spawnEnemy('sniper', GAME_WIDTH * 0.75, -40, 'straight');
+  }
+
   update(time, dt) {
     if (this.missionComplete) return;
     this.elapsed += dt;
 
     while (this.stepIndex < this.steps.length && this.elapsed >= this.steps[this.stepIndex].t) {
       this.steps[this.stepIndex].run();
+      this.spawnBonusEnemies();
       this.stepIndex++;
     }
 
@@ -177,21 +301,31 @@ export default class WaveManager {
 
     if (this.allWavesSpawned && !this.bossSpawned && this.getActiveHostileCount() === 0) {
       this.bossSpawned = true;
-      this.scene.time.delayedCall(1000, () => this.spawnBoss());
+      // Mission 4 spec: enemies stop cold, the screen goes quiet, a warning
+      // banner shows, THEN the boss enters -- a longer beat than the plain
+      // 1s beat other missions use (see HUDScene's boss-warning banner).
+      if (getMissionConfig(this.missionNumber).bossWarning) {
+        this.scene.appEvents.emit('boss-warning');
+        this.scene.time.delayedCall(3200, () => this.spawnBoss());
+      } else {
+        this.scene.time.delayedCall(1000, () => this.spawnBoss());
+      }
     }
   }
 
   // --- wave definitions ----------------------------------------------------
 
   waveStraightLine() {
-    for (let i = 0; i < 5; i++) {
-      const x = 50 + i * ((GAME_WIDTH - 100) / 4);
+    const count = this.scaleCount(5);
+    for (let i = 0; i < count; i++) {
+      const x = 50 + i * ((GAME_WIDTH - 100) / (count - 1 || 1));
       this.scene.time.delayedCall(i * 300, () => this.spawnEnemy('basic', x, -40, 'straight'));
     }
   }
 
   waveSineColumns() {
-    for (let i = 0; i < 4; i++) {
+    const count = this.scaleCount(4);
+    for (let i = 0; i < count; i++) {
       const x = i % 2 === 0 ? GAME_WIDTH * 0.25 : GAME_WIDTH * 0.75;
       this.scene.time.delayedCall(i * 500, () => this.spawnEnemy('fast', x, -40, 'sine'));
     }
@@ -234,8 +368,9 @@ export default class WaveManager {
   }
 
   waveSwarmRush() {
-    for (let i = 0; i < 8; i++) {
-      const x = 30 + i * ((GAME_WIDTH - 60) / 7);
+    const count = this.scaleCount(8);
+    for (let i = 0; i < count; i++) {
+      const x = 30 + i * ((GAME_WIDTH - 60) / (count - 1 || 1));
       this.scene.time.delayedCall(i * 220, () => this.spawnEnemy('swarm', x, -40, 'weave'));
     }
   }
@@ -252,35 +387,40 @@ export default class WaveManager {
   waveSniperDuo() {
     this.spawnEnemy('sniper', GAME_WIDTH * 0.2, -40, 'straight');
     this.spawnEnemy('sniper', GAME_WIDTH * 0.8, -40, 'straight');
-    for (let i = 0; i < 3; i++) {
-      const x = GAME_WIDTH * 0.35 + i * (GAME_WIDTH * 0.15);
+    const count = this.scaleCount(3);
+    for (let i = 0; i < count; i++) {
+      const x = GAME_WIDTH * 0.35 + i * (GAME_WIDTH * 0.3 / (count - 1 || 1));
       this.scene.time.delayedCall(300 + i * 300, () => this.spawnEnemy('basic', x, -40, 'weave'));
     }
   }
 
   waveSwarmPincer() {
-    for (let i = 0; i < 5; i++) {
+    const count = this.scaleCount(5);
+    for (let i = 0; i < count; i++) {
       this.scene.time.delayedCall(i * 250, () => this.spawnEnemy('swarm', 30, -40 - i * 20, 'sine'));
       this.scene.time.delayedCall(i * 250, () => this.spawnEnemy('swarm', GAME_WIDTH - 30, -40 - i * 20, 'sine'));
     }
   }
 
   waveScoutFlurry() {
-    for (let i = 0; i < 6; i++) {
-      const x = 30 + i * ((GAME_WIDTH - 60) / 5);
+    const count = this.scaleCount(6);
+    for (let i = 0; i < count; i++) {
+      const x = 30 + i * ((GAME_WIDTH - 60) / (count - 1 || 1));
       this.scene.time.delayedCall(i * 260, () => this.spawnEnemy('scout', x, -40, 'weave'));
     }
   }
 
   waveHornetSwarm() {
-    for (let i = 0; i < 6; i++) {
+    const count = this.scaleCount(6);
+    for (let i = 0; i < count; i++) {
       const x = i % 2 === 0 ? GAME_WIDTH * 0.3 : GAME_WIDTH * 0.7;
       this.scene.time.delayedCall(i * 300, () => this.spawnEnemy('hornet', x, -40 - i * 15, 'sine'));
     }
   }
 
   waveDragonflyPair() {
-    for (let i = 0; i < 4; i++) {
+    const count = this.scaleCount(4);
+    for (let i = 0; i < count; i++) {
       const x = i % 2 === 0 ? GAME_WIDTH * 0.22 : GAME_WIDTH * 0.78;
       this.scene.time.delayedCall(i * 400, () => this.spawnEnemy('dragonfly', x, -40, 'sine'));
     }
@@ -289,8 +429,9 @@ export default class WaveManager {
   waveEliteEscort() {
     this.spawnEnemy('elite', GAME_WIDTH * 0.28, -50, 'straight');
     this.spawnEnemy('elite', GAME_WIDTH * 0.72, -50, 'straight');
-    for (let i = 0; i < 3; i++) {
-      const x = GAME_WIDTH * 0.4 + i * (GAME_WIDTH * 0.1);
+    const count = this.scaleCount(3);
+    for (let i = 0; i < count; i++) {
+      const x = GAME_WIDTH * 0.4 + i * (GAME_WIDTH * 0.1 / (count - 1 || 1));
       this.scene.time.delayedCall(300 + i * 300, () => this.spawnEnemy('basic', x, -40, 'weave'));
     }
   }
@@ -325,7 +466,8 @@ export default class WaveManager {
     positions.forEach((f, i) => {
       this.scene.time.delayedCall(i * 200, () => this.spawnEnemy('elite', GAME_WIDTH * f, -50, 'straight'));
     });
-    for (let i = 0; i < 4; i++) {
+    const escortCount = this.scaleCount(4);
+    for (let i = 0; i < escortCount; i++) {
       this.scene.time.delayedCall(300 + i * 200, () => this.spawnEnemy('swarm', 20, -40 - i * 15, 'weave'));
       this.scene.time.delayedCall(300 + i * 200, () => this.spawnEnemy('swarm', GAME_WIDTH - 20, -40 - i * 15, 'weave'));
     }
@@ -334,7 +476,8 @@ export default class WaveManager {
   // Swarm rush from both sides simultaneously -- worse than waveSwarmPincer,
   // meant to feel like a genuine crossfire storm, Mission 3 only.
   waveSwarmStorm() {
-    for (let i = 0; i < 7; i++) {
+    const count = this.scaleCount(7);
+    for (let i = 0; i < count; i++) {
       this.scene.time.delayedCall(i * 160, () => this.spawnEnemy('swarm', 20, -40 - i * 15, 'sine'));
       this.scene.time.delayedCall(i * 160, () => this.spawnEnemy('swarm', GAME_WIDTH - 20, -40 - i * 15, 'sine'));
     }
@@ -343,7 +486,8 @@ export default class WaveManager {
   // 6 dragonflies weaving in alternating columns -- a bigger version of
   // waveDragonflyPair, Mission 3 only.
   waveDragonflySquadron() {
-    for (let i = 0; i < 6; i++) {
+    const count = this.scaleCount(6);
+    for (let i = 0; i < count; i++) {
       const x = i % 2 === 0 ? GAME_WIDTH * 0.2 : GAME_WIDTH * 0.8;
       this.scene.time.delayedCall(i * 300, () => this.spawnEnemy('dragonfly', x, -40, 'sine'));
     }

@@ -240,7 +240,8 @@ export default class TestScene extends Phaser.Scene {
     this.boss = new Boss(this, this.enemyBullets, this.juice, this.audio,
       (x, y) => this.spawnEnemy(),
       this.bossSpriteGroup, missionHp, this.missionNumber,
-      (x, y) => new Mine(this.boss, x, y, this.bossProjectileGroup)
+      (x, y) => new Mine(this.boss, x, y, this.bossProjectileGroup),
+      (x, y) => this.spawnMeteor && this.spawnMeteor(x, y)
     );
   }
 

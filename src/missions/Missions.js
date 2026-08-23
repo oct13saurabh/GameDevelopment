@@ -114,6 +114,56 @@ export const MISSIONS = {
       count: 22,
     },
   },
+
+  4: {
+    powerUps: {
+      allowedTypes: ['weapon', 'health', 'rocket', 'shield', 'bomb', 'emp', 'life'],
+    },
+
+    shipHp: {
+      basic: 24,
+      fast: 17,
+      heavy: 70,
+      sniper: 29,
+      swarm: 10,
+      elite: 90,
+      scout: 12,
+      hornet: 14,
+      dragonfly: 22,
+      carrier: 34,
+      boss: 6500,
+    },
+
+    environmentSpawnChance: 0.35,
+
+    // Combines every hazard type introduced across Missions 1-3 (spread
+    // bullets, missiles, mines, laser sweep, meteor walls) instead of a new
+    // single theme -- see src/entities/bossPatterns/Mission4Pattern.js.
+    bossPattern: 4,
+
+    // 4 phases instead of the usual 3 (see spec's Phase1/2/3/Final Phase) --
+    // Boss.js reads this array generically: phase N+1 starts once hp drops
+    // to thresholds[N-1] * maxHp. Tuned so each phase gets a meaningful
+    // window rather than being skipped in a single burst of damage.
+    bossPhaseThresholds: [0.75, 0.45, 0.20],
+    // One extra entry vs the default 3-phase [70,130,170] -- Final Phase
+    // sweeps fastest to match its "shorter cooldowns, more aggressive" spec.
+    bossSweepSpeeds: [70, 120, 165, 210],
+
+    // Pre-boss timeline (WaveManager.buildMission4Timeline) ends with
+    // enemies stopping cold and a warning banner before the boss enters --
+    // see HUDScene's boss-warning banner / WaveManager's bossWarningMs.
+    bossWarning: true,
+
+    meteorShower: {
+      enabled: true,
+      triggerAtFraction: 0.35, // Meteor Field starts early (0:30-1:00 of a 2:30 pre-boss run)
+      durationMs: 9000,
+      count: 16,
+      intervalMs: 400,
+      enemyThinning: 0.35,
+    },
+  },
 };
 
 export function getMissionConfig(missionNumber) {

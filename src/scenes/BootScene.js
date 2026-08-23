@@ -22,6 +22,11 @@ const ENEMY_CATEGORIES = [
 // mission, see MenuScene.selectMission).
 const missionFolders = (missionNumber) => [`Mission ${missionNumber}`, 'Default'];
 const BANKING_SET_RE = /^enemy_(\d+)_b_(m|l1|l2|r1|r2)\.png$/i;
+// EnemyPowerUpDrop (carrier) art tags its own attack pattern in the filename,
+// e.g. Enemy1_Blast2.png -> { family: 'blast', count: 2 }. Bare family with no
+// digits (Enemy2_Missle.png) means count 1. See CARRIER_PATTERNS in config.js
+// for what each family does; Enemy.js reads design.pattern to build it.
+const CARRIER_PATTERN_RE = /_(Blast|Spread|Burst|Missle|Homing|Mine)(\d*)\.\w+$/i;
 
 export default class BootScene extends Phaser.Scene {
   constructor() {
@@ -214,7 +219,14 @@ export default class BootScene extends Phaser.Scene {
             const safeName = file.replace(/\.\w+$/, '').replace(/[^a-zA-Z0-9]/g, '_');
             const key = this.enemyStaticKey(cat.key, folder, safeName);
             this.load.image(key, `${base}/${file}`);
-            this.enemyPlan[cat.key].push({ static: key, sourceFolder: folder });
+            let pattern = null;
+            if (cat.key === 'powerUpDrop') {
+              const patternMatch = file.match(CARRIER_PATTERN_RE);
+              if (patternMatch) {
+                pattern = { family: patternMatch[1].toLowerCase(), count: patternMatch[2] ? parseInt(patternMatch[2], 10) : 1 };
+              }
+            }
+            this.enemyPlan[cat.key].push({ static: key, sourceFolder: folder, pattern });
           }
         }
         for (const frames of Object.values(bankingSets)) {
@@ -280,6 +292,13 @@ export default class BootScene extends Phaser.Scene {
     }
     if (manifest.platform && !this.textures.exists('platform_01')) {
       this.load.image('platform_01', `${ROOT}/Platform/${manifest.platform}`);
+    }
+
+    // Real takeoff SFX (GameAssets/Sound) -- everything else in AudioSystem
+    // is procedural WebAudio synth. Mission-independent, so only load once
+    // (same guard pattern as bigblast/platform above).
+    if (!this.cache.audio.exists('sfx_takeoff')) {
+      this.load.audio('sfx_takeoff', `${ROOT}/Sound/TakeOff_Fast.mp3`);
     }
 
     this.load.once('complete', () => {

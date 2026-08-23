@@ -421,6 +421,33 @@ export const ENEMY_ROTATION = {
   },
 };
 
+// Carrier (EnemyPowerUpDrop) attack patterns -- which family a given carrier
+// runs is tagged on its art filename (Enemy1_Blast2.png -> family 'blast',
+// count 2; see CARRIER_PATTERN_RE in BootScene.js). Each family fires `count`
+// reps separated by repeatIntervalMs, then the carrier retreats off the top
+// of the screen -- see Enemy.js's isCarrier branch in update(). lifespanMs is
+// a hard cap: forces retreat even if a pattern is still mid-cycle.
+export const CARRIER_PATTERNS = {
+  repeatIntervalMs: 3000,
+  lifespanMs: 10000, // tune this one constant to change how long a carrier fights before retreating
+  fallbackFamily: 'spread',
+  fallbackCount: 1,
+  // 360-degree ring of bullets.
+  blast: { bulletCount: 12, bulletSpeed: 220, damage: 10, scale: 0.4, texture: 'enemy_bullet_1' },
+  // Narrow fan aimed at the player, same shape as Mission4Pattern.fireSpread.
+  spread: { bulletCount: 3, spreadDeg: 46, bulletSpeed: 240, damage: 10, scale: 0.4, texture: 'enemy_bullet_1' },
+  // Rapid aimed single shots per rep.
+  burst: { shotCount: 3, shotIntervalMs: 150, bulletSpeed: 260, damage: 10, scale: 0.4, texture: 'enemy_bullet_1' },
+  // Straight, high-speed, non-homing -- one from each wing.
+  missle: { wingOffset: 18, bulletSpeed: 520, damage: 14, scale: 0.5, texture: 'enemy_missile_rocket' },
+  // Homing missiles -- reuses the boss's EnemyMissile entity. missileCount is
+  // per rep (independent of the filename's N, which is the rep count).
+  homing: { missileCount: 1 },
+  // Radial mine spread dropped below the carrier -- reuses Mission4Pattern's
+  // placement math. mineCount is per rep.
+  mine: { mineCount: 3, radius: 90, spanDeg: 260 },
+};
+
 // Tunable speeds for the Destroy-frame / BigBlast death flipbooks and the
 // mission-start launch takeoff -- adjust freely while play-testing feel.
 export const ANIMATION = {
@@ -570,6 +597,44 @@ export const BOSS = {
     driftSpeed: 80, wobbleAmp: 35, wobbleFreq: 1.6,
     damage: 60, dropCount: 10, spacingX: 50,
   },
+
+  // --- Mission 4 combined-hazard boss cycle (bossPatterns/Mission4Pattern.js) ---
+  // Deliberately reuses Mission 1's bullet spread, Mission 3's missile/mine/
+  // laser building blocks instead of new attack types -- the spec's whole
+  // point is "combine the mechanics the pre-boss timeline already taught."
+  // 4 phases (not the usual 3): Bullets->Missiles->Mines through phase 1-2,
+  // Missiles->Mines->Laser->Meteor Wall from phase 3 on, tempo tightening
+  // each phase and sharply in the Final Phase (phase4).
+  mission4Cycle: {
+    phase1: { bullets: 3000, pause1: 800, missiles: 2600, pause2: 900, mines: 1800, pause3: 1200 },
+    phase2: { bullets: 3000, pause1: 600, missiles: 2800, pause2: 700, mines: 2000, pause3: 900 },
+    phase3: {
+      missiles: 3200, pause1: 500, mines: 2200, pause2: 500,
+      laserCharge: 1300, laserSweep: 2800, pause3: 600,
+      meteorWall: 1200, pause4: 800,
+    },
+    phase4: {
+      missiles: 2600, pause1: 300, mines: 1800, pause2: 300,
+      laserCharge: 800, laserSweep: 2600, pause3: 300,
+      meteorWall: 900, pause4: 300,
+    },
+  },
+  // Bullet-spread state (phases 1-2 only) -- same shape as spreadShot, own
+  // tuning so Mission 4 doesn't inherit Mission 1 balance changes for free.
+  mission4Spread: { fireRateMs: 600, count: 5, spreadDeg: 50, bulletSpeed: 200, damage: 8, scale: 0.42 },
+  // Missile volley count ramps by phase (spec: "2-3" pre-boss -> "2-missile"
+  // phase 1 -> "4-6" phase 2 -> "salvo" phase 3 -> "more aggressive" final).
+  // Uses the shared missileBarrage entity tuning (hp/speed/turn/etc) --  only
+  // the per-state count varies.
+  mission4MissileCount: { phase1: 2, phase2: 5, phase3: 7, phase4: 9 },
+  // Mine-drop count ramps similarly (spec: "small deployments" -> "mine
+  // fields" -> faster/denser in the Final Phase). Uses shared `mine` entity
+  // tuning above -- only per-state count varies.
+  mission4MineCount: { phase1: 4, phase2: 6, phase3: 8, phase4: 10 },
+  // "Meteor walls"/"meteor storm" (phase 3+) -- a row of meteors spawned via
+  // the normal spawnMeteor hook, evenly spaced across the width so it reads
+  // as a wall to weave through rather than the ambient trickle.
+  mission4MeteorWall: { countPhase3: 5, countPhase4: 8, staggerMs: 200 },
 };
 
 export const AUDIO = {
@@ -597,11 +662,19 @@ export const TOUCH_CONTROLS = {
 // gentler than Easy on every axis, plus damageTakenMult scales down actual
 // damage dealt to the player (see Player.takeDamage) -- the other tiers
 // leave player damage untouched.
+// enemyCountMult scales the per-wave spawn loop counts in WaveManager's
+// pure-count waves (waveStraightLine/waveSwarmRush/etc -- fixed-formation
+// waves like waveVFormation/waveCrossfire are left alone since scaling their
+// array length would break the formation shape). waveIntervalMult scales
+// every wave step's timeline timestamp (<1 = steps trigger earlier, so waves
+// overlap more and the screen stays busier). bonusSpawnPerWave adds N extra
+// generic enemies alongside every wave step (formation waves included) --
+// see WaveManager.spawnBonusEnemies.
 export const DIFFICULTY = {
-  kids: { label: 'KIDS', hpMult: 0.5, powerUpChanceMult: 2.2, meteorCountMult: 0.5, damageTakenMult: 0.3 },
-  easy: { label: 'EASY', hpMult: 1, powerUpChanceMult: 1, meteorCountMult: 1, damageTakenMult: 1 },
-  normal: { label: 'NORMAL', hpMult: 1.5, powerUpChanceMult: 0.7, meteorCountMult: 1.5, damageTakenMult: 1 },
-  hard: { label: 'HARD', hpMult: 2.2, powerUpChanceMult: 0.45, meteorCountMult: 2, damageTakenMult: 1 },
+  kids: { label: 'KIDS', hpMult: 0.5, powerUpChanceMult: 2.2, meteorCountMult: 0.5, damageTakenMult: 0.3, enemyCountMult: 0.6, waveIntervalMult: 1.3, bonusSpawnPerWave: 0 },
+  easy: { label: 'EASY', hpMult: 1, powerUpChanceMult: 1, meteorCountMult: 1, damageTakenMult: 1, enemyCountMult: 1, waveIntervalMult: 1, bonusSpawnPerWave: 0 },
+  normal: { label: 'NORMAL', hpMult: 3, powerUpChanceMult: 0.3, meteorCountMult: 3, damageTakenMult: 1, enemyCountMult: 1.4, waveIntervalMult: 0.85, bonusSpawnPerWave: 2 },
+  hard: { label: 'HARD', hpMult: 7, powerUpChanceMult: 0.1, meteorCountMult: 5, damageTakenMult: 2, enemyCountMult: 1.8, waveIntervalMult: 0.70, bonusSpawnPerWave: 4 },
   // UI marker only -- no hpMult/etc of its own. GameScene special-cases this
   // key: it starts the run on ADAPTIVE.startTier's real config and swaps
   // diffCfg live via AdaptiveDifficulty (see src/systems/AdaptiveDifficulty.js).

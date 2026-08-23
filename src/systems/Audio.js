@@ -7,6 +7,22 @@ export default class AudioSystem {
     this.muted = false;
     this.musicTimer = null;
     this.masterGain = null;
+    this.soundManager = null;
+  }
+
+  // Phaser's sound manager lives on the Game object (scene.sound is the same
+  // instance across every scene), so any one scene handing it over here
+  // covers playback for the whole session -- see MenuScene.create().
+  setSoundManager(soundManager) {
+    this.soundManager = soundManager;
+  }
+
+  // Plays a loaded file (GameAssets/Sound, see BootScene) if the key exists
+  // in cache; returns false if it doesn't so callers can fall back to synth.
+  playSfx(key, config) {
+    if (this.muted || !this.soundManager || !this.soundManager.game.cache.audio.exists(key)) return false;
+    this.soundManager.play(key, config);
+    return true;
   }
 
   ensureContext() {
@@ -83,7 +99,12 @@ export default class AudioSystem {
   // --- SFX -----------------------------------------------------------------
 
   playerShoot() {
-    this._osc({ type: 'square', freqStart: 880, freqEnd: 440, duration: 0.09, gainStart: 0.15 });
+    this._osc({ type: 'sawtooth', freqStart: 1600, freqEnd: 280, duration: 0.11, gainStart: 0.16 });
+  }
+
+  takeoff() {
+    if (this.playSfx('sfx_takeoff', { volume: 0.6, rate: 1.5, seek: 3 })) return;
+    this._noise({ duration: 0.6, gainStart: 0.25, filterFreqStart: 1200, filterFreqEnd: 300 });
   }
 
   enemyShoot() {

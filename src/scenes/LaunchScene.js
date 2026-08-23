@@ -13,6 +13,7 @@ export default class LaunchScene extends Phaser.Scene {
 
   init(data) {
     this.gameplayData = data;
+    this.audio = data.audio;
   }
 
   create() {
@@ -30,6 +31,7 @@ export default class LaunchScene extends Phaser.Scene {
     // Brief pause on the platform before the tween starts, so the takeoff
     // reads as a deliberate launch rather than the ship just sliding in.
     this.time.delayedCall(400, () => {
+      if (this.audio) this.audio.takeoff();
       this.tweens.add({
         targets: ship,
         y: -80,
