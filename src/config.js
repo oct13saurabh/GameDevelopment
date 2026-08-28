@@ -648,7 +648,7 @@ export const MID_BOSS = {
   hp: 1600,
   scoreValue: 1200,
   hitboxRadius: Math.round(BOSS.hitboxRadius * 0.5),
-  scale: BOSS.scale * 0.5,
+  scale: BOSS.scale * 1.5,
   sweepSpeed: 110,
   // Hard cap on how long the mid-boss stays -- at lifetimeMs it enrages
   // regardless of remaining hp. enrageWarningMs is how long before that the
