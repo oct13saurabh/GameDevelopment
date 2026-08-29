@@ -36,6 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Turns on GitHub Pages (Build source = GitHub Actions) automatically,
+      # so no manual repo-settings step is needed.
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
       - name: Assemble site
         run: |
           mkdir _site
