@@ -186,11 +186,11 @@ export const MISSIONS = {
 
     environmentSpawnChance: 0.35,
 
-    // Reuses Mission 1's pattern for the real end-of-mission boss for now --
-    // Mission 5's own end boss theme is separate future work from the
-    // mid-boss encounter (WaveManager.buildMission5Timeline's spawnMidBoss
-    // step) this mission introduces.
-    bossPattern: 1,
+    // Own end boss theme (bossPatterns/Mission5Pattern.js): twin cannons /
+    // spread shot plus a straight laser beam signature attack -- separate
+    // from the mid-boss encounter (WaveManager.buildMission5Timeline's
+    // spawnMidBoss step) this mission also introduces.
+    bossPattern: 5,
 
     bossWarning: true,
 

@@ -254,8 +254,15 @@ export default class GameScene extends Phaser.Scene {
     // and formations cycle instead of the same solo spawn every time.
     if (((this.registry.get('enemyDesigns') || {}).powerUpDrop || []).length) {
       this.carrierFormationIndex = 0;
-      this.scheduleNextCarrierSpawn();
+      this.scheduleNextCarrierSpawn(true);
     }
+    // First 30s of a fresh mission gets boosted power-up drop odds (see
+    // maybeDropPowerUp) -- otherwise Normal/Hard's low powerUpChanceMult
+    // stacked with the carrier's own spawn cadence meant a genuinely long
+    // wait for the first weapon drop, read by players as "power-ups don't
+    // work" until a respawn's guaranteed drop (triggerRespawnWeaponDrops)
+    // made the contrast obvious.
+    this.earlyGameBoostUntil = this.time.now + 30000;
 
     // Kick initial HUD state.
     this.appEvents.emit('player-health-changed', this.player.health, this.player.maxHealth);
@@ -545,7 +552,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   maybeDropPowerUp(x, y, chance) {
-    if (Math.random() > chance * this.diffCfg.powerUpChanceMult) return;
+    // Early-game boost (see create()) -- doubled odds, floored at 0.5, so
+    // Normal/Hard's low powerUpChanceMult doesn't leave the first carrier
+    // kill or two whiffing entirely.
+    const boosted = this.earlyGameBoostUntil && this.time.now < this.earlyGameBoostUntil;
+    const mult = boosted ? Math.max(this.diffCfg.powerUpChanceMult * 2, 0.5) : this.diffCfg.powerUpChanceMult;
+    if (Math.random() > chance * mult) return;
     const type = this.pickPowerUpType();
     // Colored shooting power-ups are capped on screen -- blocked here rather
     // than in pickPowerUpType so a blocked weapon roll doesn't silently
@@ -744,28 +756,89 @@ export default class GameScene extends Phaser.Scene {
     return this.activeDecorationSizes().some((size) => size === 'Big');
   }
 
-  // EXPERIMENTAL, see MISSION_BACKDROP in config.js. Picks one backdrop entry
-  // for the whole mission and scrolls it endlessly via tilePositionY (see
-  // update()) instead of the one-shot BackgroundStation drift-through.
+  // EXPERIMENTAL, see MISSION_BACKDROP in config.js. Scrolls a backdrop
+  // endlessly via tilePositionY (see update()) instead of the one-shot
+  // BackgroundStation drift-through. When the mission has more than one
+  // backdrop image, each one holds fully in view for cycleMs, then the next
+  // crossfades in over backdropTransitionMs (see beginBackdropTransition/
+  // updateEndlessBackdrop) instead of a hard swap.
+  //
+  // A physically-translating sprite (slides down from off-screen, covering
+  // the old one) was tried first, but a moving rectangle can only ever cut a
+  // hard geometric edge where it hasn't arrived yet -- alpha can't soften a
+  // boundary where there's no incoming pixel data at all. Both backdrops
+  // now stay full-screen in the same place the whole time and only alpha
+  // dissolves between them, so there's no edge to see.
   startEndlessBackdrop() {
     const plan = this.registry.get('availableBackgrounds') || [];
     if (!plan.length) return;
-    const entry = Phaser.Utils.Array.GetRandom(plan);
-    this.endlessBackdrop = this.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, entry.key);
-    this.endlessBackdrop.setDepth(MISSION_BACKDROP.depth);
-    this.endlessBackdrop.setAlpha(MISSION_BACKDROP.alpha);
+    this.endlessBackdropPlan = Phaser.Utils.Array.Shuffle(plan.slice());
+    this.endlessBackdropIndex = 0;
+    this.endlessBackdrop = this.makeBackdropTileSprite(this.endlessBackdropPlan[0].key);
+    this.endlessBackdropIncoming = null;
+    this.endlessBackdropFadeMs = 0;
 
+    if (this.endlessBackdropPlan.length > 1) {
+      this.scheduleNextBackdropTransition();
+    }
+
+    this.backgroundActive = true;
+  }
+
+  // startAlpha lets an incoming layer begin fully transparent (see
+  // updateEndlessBackdrop, which ramps it up as the crossfade progresses).
+  makeBackdropTileSprite(key, startAlpha = MISSION_BACKDROP.alpha) {
+    const sprite = this.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, key);
+    sprite.setDepth(MISSION_BACKDROP.depth);
+    sprite.setAlpha(startAlpha);
+    sprite.setTileScale(MISSION_BACKDROP.zoomX, MISSION_BACKDROP.zoomX);
     // Art's content band sits centered horizontally with empty margins each
     // side -- zoom in and re-center the tile window on the source image's
     // horizontal middle so those margins scroll off both edges instead of
     // showing.
     const zoom = MISSION_BACKDROP.zoomX;
-    this.endlessBackdrop.setTileScale(zoom, zoom);
-    const tex = this.textures.get(entry.key);
+    const tex = this.textures.get(key);
     const srcWidth = (tex && tex.key !== '__MISSING') ? tex.getSourceImage().width : GAME_WIDTH;
-    this.endlessBackdrop.tilePositionX = (srcWidth - GAME_WIDTH / zoom) / 2;
+    sprite.tilePositionX = (srcWidth - GAME_WIDTH / zoom) / 2;
+    return sprite;
+  }
 
-    this.backgroundActive = true;
+  scheduleNextBackdropTransition() {
+    this.time.delayedCall(MISSION_BACKDROP.cycleMs, () => this.beginBackdropTransition());
+  }
+
+  // Layers the next backdrop over the current one at alpha 0; update() then
+  // fades it in over backdropTransitionMs (traversal time for the current
+  // scroll speed to cover one screen height, same pacing a physical slide
+  // would've taken) while both keep scrolling their own texture underneath.
+  beginBackdropTransition() {
+    if (!this.endlessBackdrop) return;
+    this.endlessBackdropIndex = (this.endlessBackdropIndex + 1) % this.endlessBackdropPlan.length;
+    const key = this.endlessBackdropPlan[this.endlessBackdropIndex].key;
+    this.endlessBackdropIncoming = this.makeBackdropTileSprite(key, 0);
+    this.endlessBackdropFadeMs = 0;
+  }
+
+  // Both layers keep scrolling their own texture the whole time (the
+  // ambient "flying through it" motion never stops) regardless of the
+  // crossfade, which only touches alpha.
+  updateEndlessBackdrop(dt) {
+    const scrollPx = (MISSION_BACKDROP.scrollSpeed * dt) / 1000;
+    if (this.endlessBackdrop) this.endlessBackdrop.tilePositionY -= scrollPx;
+
+    if (!this.endlessBackdropIncoming) return;
+    const incoming = this.endlessBackdropIncoming;
+    incoming.tilePositionY -= scrollPx;
+    this.endlessBackdropFadeMs += dt;
+    const transitionMs = (GAME_HEIGHT / MISSION_BACKDROP.scrollSpeed) * 1000;
+    const progress = Phaser.Math.Clamp(this.endlessBackdropFadeMs / transitionMs, 0, 1);
+    incoming.setAlpha(progress * MISSION_BACKDROP.alpha);
+    if (progress >= 1) {
+      this.endlessBackdrop.destroy();
+      this.endlessBackdrop = incoming;
+      this.endlessBackdropIncoming = null;
+      if (this.endlessBackdropPlan.length > 1) this.scheduleNextBackdropTransition();
+    }
   }
 
   spawnBackgroundStation() {
@@ -928,9 +1001,12 @@ export default class GameScene extends Phaser.Scene {
 
   // Cycled round-robin (not random) so every formation actually shows up in
   // rotation, with a randomized cadence (5-8s) between spawns so it doesn't
-  // read as a metronome. See CARRIER_FORMATIONS below.
-  scheduleNextCarrierSpawn() {
-    this.time.delayedCall(Phaser.Math.Between(5000, 8000), () => {
+  // read as a metronome. See CARRIER_FORMATIONS below. The very first spawn
+  // uses a shorter 2-3.5s delay -- the normal 5-8s range left a fresh mission
+  // with no power-up source on screen for a while (see earlyGameBoostUntil).
+  scheduleNextCarrierSpawn(isFirst = false) {
+    const delay = isFirst ? Phaser.Math.Between(2000, 3500) : Phaser.Math.Between(5000, 8000);
+    this.time.delayedCall(delay, () => {
       if (this.missionEnded) return;
       CARRIER_FORMATIONS[this.carrierFormationIndex % CARRIER_FORMATIONS.length].call(this);
       this.carrierFormationIndex++;
@@ -1079,9 +1155,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.isAdaptive) this.adaptiveDifficulty.update(dt, this.player.score);
 
     this.starfield.update(dt);
-    if (this.endlessBackdrop) {
-      this.endlessBackdrop.tilePositionY -= (MISSION_BACKDROP.scrollSpeed * dt) / 1000;
-    }
+    this.updateEndlessBackdrop(dt);
     this.player.update(time, dt);
 
     for (const enemy of this.enemies) enemy.update(time, dt);

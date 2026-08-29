@@ -62,6 +62,10 @@ export default class BootScene extends Phaser.Scene {
     // raw 1024x1024 source, same bakeCrisp treatment as enemy_bullet_1/2 above.
     this.load.image('enemy_missile_rocket', `${ROOT}/Bullets/enemy_missile_rocket.png`);
     this.load.image('mine', `${ROOT}/Bullets/mines.png`);
+    // Mission 5 boss's straight laser beam attack (bossPatterns/BossLaser.js) --
+    // vertical glow-beam art, tip at the top of the file. Also reused (scaled
+    // small) as the charge-up telegraph glow before the beam fires.
+    this.load.image('laser_beam', `${ROOT}/Bullets/Laser.png`);
 
     // Static main-menu backdrop (MenuScene) -- square source, cropped to
     // cover the portrait canvas (see MenuScene.create()'s setDisplaySize).

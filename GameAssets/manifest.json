@@ -138,6 +138,10 @@
       {
         "file": "Background_5.png",
         "size": "Medium"
+      },
+      {
+        "file": "Background_5_1.png",
+        "size": "Medium"
       }
     ],
     "environment": {

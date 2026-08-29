@@ -635,6 +635,31 @@ export const BOSS = {
   // the normal spawnMeteor hook, evenly spaced across the width so it reads
   // as a wall to weave through rather than the ambient trickle.
   mission4MeteorWall: { countPhase3: 5, countPhase4: 8, staggerMs: 200 },
+
+  // --- Mission 5 Straight Laser Beam (bossPatterns/BossLaser.js) ---
+  // Boss's signature attack: a real rendered beam sprite (not a simulated
+  // bullet-sweep like Mission 1's laserSweep) fired straight down (not aimed
+  // at the player), held for durationMs. telegraphMs (BOSS.telegraphMs,
+  // reused) drives a growing glow at the muzzle before it fires, via
+  // boss.telegraphThenFire -- see fireStraightLaser in Mission5Pattern.js.
+  // damage isn't used -- touching the beam is an instant-kill (see
+  // BossLaser.checkPlayerHit), not chip damage.
+  laserStraight: {
+    durationMs: 1400, tickMs: 150, beamWidth: 70, beamLength: 900,
+    glowMaxSize: 34,
+  },
+
+  // --- Mission 5 attack cycle (bossPatterns/Mission5Pattern.js) ---
+  // Twin Cannons -> pause -> Spread Shot -> pause -> Laser Charge+Fire ->
+  // pause -> repeat. Reuses Mission 1's twinCannon/spreadShot tuning; the
+  // laser charge/fire durations below just gate the cycle's own timing --
+  // the beam's actual charge (telegraphMs) and fire (laserStraight.durationMs)
+  // timings live above / in BOSS.telegraphMs.
+  mission5Cycle: {
+    phase1: { twinCannons: 4000, pause1: 900, spread: 3500, pause2: 1200, laser: 1800, pause3: 1400 },
+    phase2: { twinCannons: 4000, pause1: 650, spread: 3500, pause2: 900, laser: 1800, pause3: 1000 },
+    phase3: { twinCannons: 3600, pause1: 450, spread: 3200, pause2: 650, laser: 1800, pause3: 700 },
+  },
 };
 
 // Mission 5's mid-boss (src/entities/MidBoss.js + bossPatterns/MidBossPattern.js) --
@@ -785,6 +810,11 @@ export const MISSION_BACKDROP = {
   // the screen (GameScene.startEndlessBackdrop centers it automatically).
   // Raise to crop tighter, lower toward 1 to show more of the margins.
   zoomX: 0.90,
+  // When a mission has more than one backdrop image (see GameAssets/
+  // Background/Mission N), cycle through all of them in order rather than
+  // picking one at random and sticking with it the whole mission -- see
+  // GameScene.advanceEndlessBackdrop.
+  cycleMs: 25000,
 };
 
 // Purely decorative background structures, composed from several station/
