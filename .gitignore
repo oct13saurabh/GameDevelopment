@@ -1,5 +1,8 @@
 node_modules/
 dist/
+www/
+.tmp-chrome-mobile-check/
+.tmp-electron-mobile-check/
 .DS_Store
 *.log
 .env
