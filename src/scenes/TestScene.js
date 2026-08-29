@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, ENEMY_TYPES, DIFFICULTY, SHIPS_FALLBACK } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, ENEMY_TYPES, DIFFICULTY, SHIPS_FALLBACK, ENVIRONMENT_OBJECTS } from '../config.js';
 import { MISSIONS, getMissionConfig } from '../missions/Missions.js';
 import { getPrefs, setPref, clampShipIndex } from '../systems/PlayerPrefs.js';
 import Starfield from '../systems/Starfield.js';
@@ -8,6 +8,8 @@ import Player from '../entities/Player.js';
 import Enemy from '../entities/Enemy.js';
 import Train from '../entities/Train.js';
 import Boss from '../entities/Boss.js';
+import MidBoss from '../entities/MidBoss.js';
+import BackgroundStation from '../entities/BackgroundStation.js';
 import Mine from '../entities/bossPatterns/Mine.js';
 import { ACCENT_HEX, TEXT_HEX, drawBeveledPanel, drawCornerBrackets } from '../systems/UITheme.js';
 
@@ -44,6 +46,9 @@ export default class TestScene extends Phaser.Scene {
     this.enemies = [];
     this.trains = [];
     this.boss = null;
+    this.midBoss = null;
+    this.backgroundStations = [];
+    this.environmentObjects = [];
 
     this.playerBullets = new BulletPool(this, { texture: 'bullet_player', maxSize: 60, damage: 20 });
     this.enemyBullets = new BulletPool(this, { texture: 'bullet_enemy', maxSize: 120, damage: 10 });
@@ -70,6 +75,9 @@ export default class TestScene extends Phaser.Scene {
     this.input.keyboard.on('keydown-B', () => this.spawnBoss());
     this.input.keyboard.on('keydown-T', () => this.spawnTrain());
     this.input.keyboard.on('keydown-E', () => this.spawnEnemy());
+    this.input.keyboard.on('keydown-M', () => this.spawnMidBoss());
+    this.input.keyboard.on('keydown-G', () => this.spawnBackground());
+    this.input.keyboard.on('keydown-V', () => this.spawnEnvironmentObject());
     this.input.keyboard.on('keydown-K', () => this.killAll());
     this.input.keyboard.on('keydown-C', () => this.clearAll());
     this.input.keyboard.on('keydown-OPEN_BRACKET', () => this.cycleType(-1));
@@ -124,7 +132,7 @@ export default class TestScene extends Phaser.Scene {
 
     const panelX = 12;
     const panelW = 168;
-    drawBeveledPanel(this, panelX, 50, panelW, 330, { chamfer: 10 }).setDepth(5);
+    drawBeveledPanel(this, panelX, 50, panelW, 450, { chamfer: 10 }).setDepth(5);
 
     let y = 74;
     const spacing = 40;
@@ -153,6 +161,10 @@ export default class TestScene extends Phaser.Scene {
     makeButton('SPAWN ENEMY [E]', () => this.spawnEnemy());
     makeButton('SPAWN TRAIN [T]', () => this.spawnTrain());
     makeButton('SPAWN BOSS [B]', () => this.spawnBoss());
+    makeButton('SPAWN MID-BOSS [M]', () => this.spawnMidBoss());
+    y += 8;
+    makeButton('SPAWN BACKGROUND [G]', () => this.spawnBackground());
+    makeButton('SPAWN ENVIRONMENT [V]', () => this.spawnEnvironmentObject());
     y += 8;
     makeButton('DAMAGE HOSTILES 20%', () => this.damageAllFraction(0.2));
     makeButton('KILL ALL [K]', () => this.killAll());
@@ -245,6 +257,42 @@ export default class TestScene extends Phaser.Scene {
     );
   }
 
+  spawnMidBoss() {
+    if (this.midBoss && this.midBoss.alive) return;
+    this.midBoss = new MidBoss(this, this.enemyBullets, this.juice, this.audio, this.bossSpriteGroup);
+  }
+
+  // Fullscreen mission-backdrop layer -- same BackgroundStation entity as
+  // GameScene.spawnBackgroundStation, just without the "one per mission" /
+  // "wait for foreground stations to clear" gating (sandbox: spawn on demand).
+  spawnBackground() {
+    const plan = this.registry.get('availableBackgrounds') || [];
+    if (!plan.length) return;
+    if (this.backgroundStations.some((s) => s.alive)) return;
+    const entry = Phaser.Utils.Array.GetRandom(plan);
+    const station = new BackgroundStation(this, entry.key, GAME_WIDTH / 2, -GAME_HEIGHT / 2, { fullscreen: true, size: entry.size });
+    this.backgroundStations.push(station);
+  }
+
+  // Decorative drifting planet/object -- same BackgroundStation entity as
+  // GameScene.spawnEnvironmentObject, without the spawn-chance roll or
+  // overlap/backdrop-size gating (sandbox: spawn on demand).
+  spawnEnvironmentObject() {
+    const plan = this.registry.get('availableEnvironmentObjects') || [];
+    if (!plan.length) return;
+    const entry = Phaser.Utils.Array.GetRandom(plan);
+    const sizeCfg = ENVIRONMENT_OBJECTS.bySize[entry.size] || ENVIRONMENT_OBJECTS.bySize.Medium;
+    const x = Phaser.Math.Between(60, GAME_WIDTH - 60);
+    const object = new BackgroundStation(this, entry.key, x, -250, {
+      depth: sizeCfg.depth ?? ENVIRONMENT_OBJECTS.depth,
+      size: entry.size,
+      scale: sizeCfg.scale,
+      alpha: sizeCfg.alpha,
+      driftSpeed: sizeCfg.driftSpeed,
+    });
+    this.environmentObjects.push(object);
+  }
+
   // Chops `fraction` of current hp off every active hostile -- a quick way
   // to bring a boss/train/enemy close to 0% hp without grinding a real fight
   // down to it (Destroy/N.png frames only play once hp actually hits 0).
@@ -258,12 +306,16 @@ export default class TestScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.takeDamage(this.boss.hp * fraction);
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.takeDamage(this.midBoss.hp * fraction);
+    }
   }
 
   killAll() {
     for (const enemy of this.enemies) if (enemy.alive) enemy.takeDamage(99999);
     for (const train of this.trains) if (train.alive) train.takeDamage(99999);
     if (this.boss && this.boss.alive) this.boss.takeDamage(99999);
+    if (this.midBoss && this.midBoss.alive) this.midBoss.takeDamage(99999);
   }
 
   // Instant removal, no death animation -- for clearing clutter between
@@ -272,9 +324,15 @@ export default class TestScene extends Phaser.Scene {
     for (const enemy of this.enemies) if (enemy.sprite) enemy.destroy();
     for (const train of this.trains) if (train.sprite) train.destroy();
     if (this.boss && this.boss.sprite) this.boss.destroy();
+    if (this.midBoss && this.midBoss.sprite) this.midBoss.destroy();
+    for (const s of this.backgroundStations) if (s.alive) s.destroy();
+    for (const o of this.environmentObjects) if (o.alive) o.destroy();
     this.boss = null;
+    this.midBoss = null;
     this.enemies = [];
     this.trains = [];
+    this.backgroundStations = [];
+    this.environmentObjects = [];
   }
 
   update(time, dt) {
@@ -284,14 +342,21 @@ export default class TestScene extends Phaser.Scene {
 
     for (const enemy of this.enemies) enemy.update(time, dt);
     for (const train of this.trains) train.update(time, dt);
+    for (const s of this.backgroundStations) s.update(time, dt);
+    for (const o of this.environmentObjects) o.update(time, dt);
+    if (this.midBoss) this.midBoss.update(time, dt);
     if (this.boss) this.boss.update(time, dt);
 
     this.enemies = this.enemies.filter((e) => e.alive);
     this.trains = this.trains.filter((t) => t.alive);
+    this.backgroundStations = this.backgroundStations.filter((s) => s.alive);
+    this.environmentObjects = this.environmentObjects.filter((o) => o.alive);
     if (this.boss && !this.boss.alive) this.boss = null;
+    if (this.midBoss && !this.midBoss.alive) this.midBoss = null;
 
     const lines = [];
     if (this.boss) lines.push(`BOSS HP: ${Math.max(this.boss.hp, 0)}/${this.boss.maxHp}`);
+    if (this.midBoss) lines.push(`MID-BOSS HP: ${Math.max(this.midBoss.hp, 0)}/${this.midBoss.maxHp}`);
     for (const train of this.trains) lines.push(`TRAIN HP: ${Math.max(train.hp, 0)}/460`);
     this.hpText.setText(lines.join('\n'));
   }

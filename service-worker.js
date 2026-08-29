@@ -4,7 +4,7 @@
 // of being precached upfront).
 // Bump this whenever the cache strategy itself changes (like this v2 bump)
 // so activate() flushes anything stuck under the old name.
-const CACHE_NAME = 'space-shooter-v2';
+const CACHE_NAME = 'space-shooter-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -12,6 +12,9 @@ const APP_SHELL = [
   './src/main.js',
   './src/config.js',
   './src/vendor/phaser.min.js',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {

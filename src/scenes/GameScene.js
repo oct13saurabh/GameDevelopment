@@ -1,4 +1,4 @@
-import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, ENVIRONMENT_OBJECTS, DIFFICULTY, ADAPTIVE, ENEMY_TYPES, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
+import { GAME_WIDTH, GAME_HEIGHT, PLAYER, METEOR, SPECIAL_METEOR, TRAIN, POWERUP, SHOOTING_POWERUP, MEGA_BLAST, BOMB_POWERUP, EMP_POWERUP, SPACE_STATIONS, ENVIRONMENT_OBJECTS, MISSION_BACKDROP, DIFFICULTY, ADAPTIVE, ENEMY_TYPES, MID_BOSS, DEFAULT_INPUT_TYPE, DEFAULT_AUTO_FIRE } from '../config.js';
 import { getMissionConfig } from '../missions/Missions.js';
 import { getPrefs } from '../systems/PlayerPrefs.js';
 import Starfield from '../systems/Starfield.js';
@@ -12,6 +12,7 @@ import Meteor from '../entities/Meteor.js';
 import Train from '../entities/Train.js';
 import PowerUp from '../entities/PowerUp.js';
 import Boss from '../entities/Boss.js';
+import MidBoss from '../entities/MidBoss.js';
 import Missile from '../entities/Missile.js';
 import Mine from '../entities/bossPatterns/Mine.js';
 import EnemyMissile from '../entities/bossPatterns/EnemyMissile.js';
@@ -112,6 +113,12 @@ export default class GameScene extends Phaser.Scene {
     this.spaceStations = [];
     this.backgroundStations = [];
     this.boss = null;
+    this.midBoss = null;
+    // Mission 5's mid-boss encounter (see spawnMidBoss) -- true for its
+    // whole lifetime (spawn to kill/enrage-destroy), read by spawnEnemy/
+    // spawnMeteor below to pause heavy/elite enemies and all meteor spawns
+    // while it's active.
+    this.midBossActive = false;
     this.missionEnded = false;
     // Both start false so the mission-start HUD sync below (weaponLevel is
     // already 1 on a fresh Player) doesn't trigger a guaranteed weapon drop --
@@ -160,6 +167,7 @@ export default class GameScene extends Phaser.Scene {
       spawnEnemyMissile: (x, y) => this.spawnEnemyMissile(x, y),
       spawnMine: (x, y) => this.spawnMine(x, y),
       spawnBoss: () => this.spawnBoss(),
+      spawnMidBoss: () => this.spawnMidBoss(),
       getActiveHostileCount: () => this.getActiveHostileCount(),
       meteorCountMult: this.diffCfg.meteorCountMult,
       enemyCountMult: this.diffCfg.enemyCountMult,
@@ -199,9 +207,16 @@ export default class GameScene extends Phaser.Scene {
     // Mission backdrop image: shows once per mission (not repeating), capped
     // at backgroundMaxDurationMs, and never overlaps with the foreground
     // SpaceStations (see trySpawnBackgroundStation/spawnSpaceStation guards).
+    // EXPERIMENTAL: MISSION_BACKDROP.enabled swaps this one-shot drift-through
+    // for a single endlessly-scrolling backdrop covering the whole mission --
+    // flip that flag off in config.js to revert to the line above unchanged.
     this.backgroundSpawned = false;
     this.backgroundActive = false;
-    this.time.delayedCall(6000, () => this.trySpawnBackgroundStation());
+    if (MISSION_BACKDROP.enabled) {
+      this.startEndlessBackdrop();
+    } else {
+      this.time.delayedCall(6000, () => this.trySpawnBackgroundStation());
+    }
 
     // Random decorative environment objects (planets, etc), independent of
     // the single mission-backdrop above -- spawns repeatedly all mission long.
@@ -239,8 +254,15 @@ export default class GameScene extends Phaser.Scene {
     // and formations cycle instead of the same solo spawn every time.
     if (((this.registry.get('enemyDesigns') || {}).powerUpDrop || []).length) {
       this.carrierFormationIndex = 0;
-      this.scheduleNextCarrierSpawn();
+      this.scheduleNextCarrierSpawn(true);
     }
+    // First 30s of a fresh mission gets boosted power-up drop odds (see
+    // maybeDropPowerUp) -- otherwise Normal/Hard's low powerUpChanceMult
+    // stacked with the carrier's own spawn cadence meant a genuinely long
+    // wait for the first weapon drop, read by players as "power-ups don't
+    // work" until a respawn's guaranteed drop (triggerRespawnWeaponDrops)
+    // made the contrast obvious.
+    this.earlyGameBoostUntil = this.time.now + 30000;
 
     // Kick initial HUD state.
     this.appEvents.emit('player-health-changed', this.player.health, this.player.maxHealth);
@@ -426,6 +448,18 @@ export default class GameScene extends Phaser.Scene {
       this.onMissionComplete();
     });
 
+    // Mid-boss is a mid-mission encounter, not the mission-ending boss --
+    // award score/drop on a real kill only (reward=false on enrage-timeout
+    // self-destruct), and just clear the active flags either way. Mission
+    // play continues normally afterward.
+    this.appEvents.on('midboss-killed', (midBoss, reward) => {
+      this.midBossActive = false;
+      if (reward) {
+        this.player.addScore(MID_BOSS.scoreValue);
+        this.maybeDropPowerUp(midBoss.sprite ? midBoss.sprite.x : 0, midBoss.sprite ? midBoss.sprite.y : 0, 1);
+      }
+    });
+
     this.appEvents.on('player-died', () => {
       this.onPlayerDied();
     });
@@ -518,7 +552,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   maybeDropPowerUp(x, y, chance) {
-    if (Math.random() > chance * this.diffCfg.powerUpChanceMult) return;
+    // Early-game boost (see create()) -- doubled odds, floored at 0.5, so
+    // Normal/Hard's low powerUpChanceMult doesn't leave the first carrier
+    // kill or two whiffing entirely.
+    const boosted = this.earlyGameBoostUntil && this.time.now < this.earlyGameBoostUntil;
+    const mult = boosted ? Math.max(this.diffCfg.powerUpChanceMult * 2, 0.5) : this.diffCfg.powerUpChanceMult;
+    if (Math.random() > chance * mult) return;
     const type = this.pickPowerUpType();
     // Colored shooting power-ups are capped on screen -- blocked here rather
     // than in pickPowerUpType so a blocked weapon roll doesn't silently
@@ -574,6 +613,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.takeDamage(MEGA_BLAST.damage);
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.takeDamage(MEGA_BLAST.damage);
+    }
   }
 
   // Smart bomb detonation (see Player.useBomb): same wipe shape as
@@ -607,6 +649,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.takeDamage(BOMB_POWERUP.damage);
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.takeDamage(BOMB_POWERUP.damage);
+    }
     this.enemyBullets.killAll();
   }
 
@@ -634,6 +679,9 @@ export default class GameScene extends Phaser.Scene {
     if (this.boss && this.boss.alive) {
       this.boss.stunnedUntil = stunnedUntil;
     }
+    if (this.midBoss && this.midBoss.alive) {
+      this.midBoss.stunnedUntil = stunnedUntil;
+    }
     this.enemyBullets.killAll();
   }
 
@@ -644,6 +692,7 @@ export default class GameScene extends Phaser.Scene {
   // trash target near spawn instead of ever visibly striking the boss.
   findNearestHostile(x, y) {
     if (this.boss && this.boss.alive && this.boss.sprite) return this.boss;
+    if (this.midBoss && this.midBoss.alive && this.midBoss.sprite) return this.midBoss;
 
     let nearest = null;
     let nearestDist = Infinity;
@@ -707,6 +756,91 @@ export default class GameScene extends Phaser.Scene {
     return this.activeDecorationSizes().some((size) => size === 'Big');
   }
 
+  // EXPERIMENTAL, see MISSION_BACKDROP in config.js. Scrolls a backdrop
+  // endlessly via tilePositionY (see update()) instead of the one-shot
+  // BackgroundStation drift-through. When the mission has more than one
+  // backdrop image, each one holds fully in view for cycleMs, then the next
+  // crossfades in over backdropTransitionMs (see beginBackdropTransition/
+  // updateEndlessBackdrop) instead of a hard swap.
+  //
+  // A physically-translating sprite (slides down from off-screen, covering
+  // the old one) was tried first, but a moving rectangle can only ever cut a
+  // hard geometric edge where it hasn't arrived yet -- alpha can't soften a
+  // boundary where there's no incoming pixel data at all. Both backdrops
+  // now stay full-screen in the same place the whole time and only alpha
+  // dissolves between them, so there's no edge to see.
+  startEndlessBackdrop() {
+    const plan = this.registry.get('availableBackgrounds') || [];
+    if (!plan.length) return;
+    this.endlessBackdropPlan = Phaser.Utils.Array.Shuffle(plan.slice());
+    this.endlessBackdropIndex = 0;
+    this.endlessBackdrop = this.makeBackdropTileSprite(this.endlessBackdropPlan[0].key);
+    this.endlessBackdropIncoming = null;
+    this.endlessBackdropFadeMs = 0;
+
+    if (this.endlessBackdropPlan.length > 1) {
+      this.scheduleNextBackdropTransition();
+    }
+
+    this.backgroundActive = true;
+  }
+
+  // startAlpha lets an incoming layer begin fully transparent (see
+  // updateEndlessBackdrop, which ramps it up as the crossfade progresses).
+  makeBackdropTileSprite(key, startAlpha = MISSION_BACKDROP.alpha) {
+    const sprite = this.add.tileSprite(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, key);
+    sprite.setDepth(MISSION_BACKDROP.depth);
+    sprite.setAlpha(startAlpha);
+    sprite.setTileScale(MISSION_BACKDROP.zoomX, MISSION_BACKDROP.zoomX);
+    // Art's content band sits centered horizontally with empty margins each
+    // side -- zoom in and re-center the tile window on the source image's
+    // horizontal middle so those margins scroll off both edges instead of
+    // showing.
+    const zoom = MISSION_BACKDROP.zoomX;
+    const tex = this.textures.get(key);
+    const srcWidth = (tex && tex.key !== '__MISSING') ? tex.getSourceImage().width : GAME_WIDTH;
+    sprite.tilePositionX = (srcWidth - GAME_WIDTH / zoom) / 2;
+    return sprite;
+  }
+
+  scheduleNextBackdropTransition() {
+    this.time.delayedCall(MISSION_BACKDROP.cycleMs, () => this.beginBackdropTransition());
+  }
+
+  // Layers the next backdrop over the current one at alpha 0; update() then
+  // fades it in over backdropTransitionMs (traversal time for the current
+  // scroll speed to cover one screen height, same pacing a physical slide
+  // would've taken) while both keep scrolling their own texture underneath.
+  beginBackdropTransition() {
+    if (!this.endlessBackdrop) return;
+    this.endlessBackdropIndex = (this.endlessBackdropIndex + 1) % this.endlessBackdropPlan.length;
+    const key = this.endlessBackdropPlan[this.endlessBackdropIndex].key;
+    this.endlessBackdropIncoming = this.makeBackdropTileSprite(key, 0);
+    this.endlessBackdropFadeMs = 0;
+  }
+
+  // Both layers keep scrolling their own texture the whole time (the
+  // ambient "flying through it" motion never stops) regardless of the
+  // crossfade, which only touches alpha.
+  updateEndlessBackdrop(dt) {
+    const scrollPx = (MISSION_BACKDROP.scrollSpeed * dt) / 1000;
+    if (this.endlessBackdrop) this.endlessBackdrop.tilePositionY -= scrollPx;
+
+    if (!this.endlessBackdropIncoming) return;
+    const incoming = this.endlessBackdropIncoming;
+    incoming.tilePositionY -= scrollPx;
+    this.endlessBackdropFadeMs += dt;
+    const transitionMs = (GAME_HEIGHT / MISSION_BACKDROP.scrollSpeed) * 1000;
+    const progress = Phaser.Math.Clamp(this.endlessBackdropFadeMs / transitionMs, 0, 1);
+    incoming.setAlpha(progress * MISSION_BACKDROP.alpha);
+    if (progress >= 1) {
+      this.endlessBackdrop.destroy();
+      this.endlessBackdrop = incoming;
+      this.endlessBackdropIncoming = null;
+      if (this.endlessBackdropPlan.length > 1) this.scheduleNextBackdropTransition();
+    }
+  }
+
   spawnBackgroundStation() {
     if (this.missionEnded) return;
     const plan = this.registry.get('availableBackgrounds') || [];
@@ -739,8 +873,15 @@ export default class GameScene extends Phaser.Scene {
     // Big/Medium/Small all sit behind the backdrop and would be invisible/
     // visually noisy against it, so they're excluded outright rather than
     // just deprioritized.
+    // EXPERIMENTAL: under MISSION_BACKDROP.enabled the backdrop sits behind
+    // every environment depth (-9 vs -7/-5), so all sizes -- VerySmall
+    // included -- read fine on top of it; use the full pool instead of
+    // either of the old backdrop/no-backdrop branches. Revert via the
+    // config flag, those two branches go back to the old behavior unchanged.
     let pool;
-    if (this.backgroundActive) {
+    if (MISSION_BACKDROP.enabled) {
+      pool = this.onlySmallAllowed() ? plan.filter((e) => e.size === 'Small') : plan;
+    } else if (this.backgroundActive) {
       pool = plan.filter((e) => e.size === 'VerySmall');
     } else {
       const notVerySmall = plan.filter((e) => e.size !== 'VerySmall');
@@ -788,6 +929,12 @@ export default class GameScene extends Phaser.Scene {
     if (this.waveManager.meteorShowerActive && Math.random() < this.waveManager.meteorShowerConfig.enemyThinning) {
       return null;
     }
+    // While the Mission 5 mid-boss is active, heavy/elite enemies stand down
+    // so it stays the toughest thing on screen -- light fodder keeps
+    // spawning normally (see spawnMidBoss).
+    if (this.midBossActive && (typeKey === 'heavy' || typeKey === 'elite')) {
+      return null;
+    }
     const cfg = ENEMY_TYPES[typeKey];
     const poolKey = cfg && cfg.alwaysDropsPowerUp ? 'powerUpDrop' : 'random';
     const designs = this.registry.get('enemyDesigns') || {};
@@ -805,6 +952,10 @@ export default class GameScene extends Phaser.Scene {
   }
 
   spawnMeteor(x, y) {
+    // Meteors stand down entirely while the mid-boss is active (see
+    // spawnMidBoss) -- covers the ambient trickle, timeline meteor waves,
+    // and the dedicated meteor-shower event all at this one call site.
+    if (this.midBossActive) return null;
     const meteor = new Meteor(this, this.juice, this.audio, x, y, this.meteorSpriteGroup);
     meteor.hp = Math.round(meteor.hp * this.diffCfg.hpMult);
     this.meteors.push(meteor);
@@ -850,9 +1001,12 @@ export default class GameScene extends Phaser.Scene {
 
   // Cycled round-robin (not random) so every formation actually shows up in
   // rotation, with a randomized cadence (5-8s) between spawns so it doesn't
-  // read as a metronome. See CARRIER_FORMATIONS below.
-  scheduleNextCarrierSpawn() {
-    this.time.delayedCall(Phaser.Math.Between(5000, 8000), () => {
+  // read as a metronome. See CARRIER_FORMATIONS below. The very first spawn
+  // uses a shorter 2-3.5s delay -- the normal 5-8s range left a fresh mission
+  // with no power-up source on screen for a while (see earlyGameBoostUntil).
+  scheduleNextCarrierSpawn(isFirst = false) {
+    const delay = isFirst ? Phaser.Math.Between(2000, 3500) : Phaser.Math.Between(5000, 8000);
+    this.time.delayedCall(delay, () => {
       if (this.missionEnded) return;
       CARRIER_FORMATIONS[this.carrierFormationIndex % CARRIER_FORMATIONS.length].call(this);
       this.carrierFormationIndex++;
@@ -921,10 +1075,22 @@ export default class GameScene extends Phaser.Scene {
     this.boss.maxHp = Math.round(this.boss.maxHp * this.diffCfg.hpMult);
   }
 
+  // Mission 5's mid-boss (see WaveManager.buildMission5Timeline's timed
+  // spawnMidBoss step) -- independent of the real end-of-mission boss's
+  // "all waves done + field clear" gate, it just fires once at a scripted
+  // point in the timeline.
+  spawnMidBoss() {
+    this.midBoss = new MidBoss(this, this.enemyBullets, this.juice, this.audio, this.bossSpriteGroup);
+    this.midBoss.hp = Math.round(this.midBoss.hp * this.diffCfg.hpMult);
+    this.midBoss.maxHp = Math.round(this.midBoss.maxHp * this.diffCfg.hpMult);
+    this.midBossActive = true;
+  }
+
   getActiveHostileCount() {
     const e = this.enemies.filter((x) => x.alive).length;
     const m = this.meteors.filter((x) => x.alive).length;
-    return e + m;
+    const mb = this.midBoss && this.midBoss.alive ? 1 : 0;
+    return e + m + mb;
   }
 
   onMissionComplete() {
@@ -989,6 +1155,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.isAdaptive) this.adaptiveDifficulty.update(dt, this.player.score);
 
     this.starfield.update(dt);
+    this.updateEndlessBackdrop(dt);
     this.player.update(time, dt);
 
     for (const enemy of this.enemies) enemy.update(time, dt);
@@ -1002,6 +1169,7 @@ export default class GameScene extends Phaser.Scene {
     for (const bg of this.backgroundStations) bg.update(time, dt);
     for (const obj of this.environmentObjects) obj.update(time, dt);
     if (this.boss) this.boss.update(time, dt);
+    if (this.midBoss) this.midBoss.update(time, dt);
 
     this.enemies = this.enemies.filter((e) => e.alive);
     this.meteors = this.meteors.filter((m) => m.alive);
@@ -1017,6 +1185,7 @@ export default class GameScene extends Phaser.Scene {
       if (this.stationTimer) this.stationTimer.paused = false;
     }
     if (this.boss && !this.boss.alive) this.boss = null;
+    if (this.midBoss && !this.midBoss.alive) this.midBoss = null;
 
     this.waveManager.update(time, dt);
   }

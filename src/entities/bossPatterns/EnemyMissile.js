@@ -7,10 +7,14 @@ import { BOSS, GAME_WIDTH, GAME_HEIGHT } from '../../config.js';
 // chase the player, but can never rotate up past horizontal. Reads as always
 // diving at the player rather than doubling back over the boss.
 export default class EnemyMissile {
-  constructor(boss, x, y, spriteGroup) {
+  // cfg defaults to the Mission 3+ Missile Barrage tuning; pass a different
+  // shape (e.g. MID_BOSS.wingMissileStraight, turnRateDeg: 0) to get a
+  // non-homing variant out of the same entity -- clampAngleDeg still guards
+  // the steer, it just never gets a nonzero step to apply.
+  constructor(boss, x, y, spriteGroup, cfg = BOSS.missileBarrage) {
     this.boss = boss;
     this.scene = boss.scene;
-    this.cfg = BOSS.missileBarrage;
+    this.cfg = cfg;
     this.alive = true;
     this.hp = this.cfg.hp;
     this.angleDeg = 90; // start heading straight down

@@ -635,6 +635,65 @@ export const BOSS = {
   // the normal spawnMeteor hook, evenly spaced across the width so it reads
   // as a wall to weave through rather than the ambient trickle.
   mission4MeteorWall: { countPhase3: 5, countPhase4: 8, staggerMs: 200 },
+
+  // --- Mission 5 Straight Laser Beam (bossPatterns/BossLaser.js) ---
+  // Boss's signature attack: a real rendered beam sprite (not a simulated
+  // bullet-sweep like Mission 1's laserSweep) fired straight down (not aimed
+  // at the player), held for durationMs. telegraphMs (BOSS.telegraphMs,
+  // reused) drives a growing glow at the muzzle before it fires, via
+  // boss.telegraphThenFire -- see fireStraightLaser in Mission5Pattern.js.
+  // damage isn't used -- touching the beam is an instant-kill (see
+  // BossLaser.checkPlayerHit), not chip damage.
+  laserStraight: {
+    durationMs: 1400, tickMs: 150, beamWidth: 70, beamLength: 900,
+    glowMaxSize: 34,
+  },
+
+  // --- Mission 5 attack cycle (bossPatterns/Mission5Pattern.js) ---
+  // Twin Cannons -> pause -> Spread Shot -> pause -> Laser Charge+Fire ->
+  // pause -> repeat. Reuses Mission 1's twinCannon/spreadShot tuning; the
+  // laser charge/fire durations below just gate the cycle's own timing --
+  // the beam's actual charge (telegraphMs) and fire (laserStraight.durationMs)
+  // timings live above / in BOSS.telegraphMs.
+  mission5Cycle: {
+    phase1: { twinCannons: 4000, pause1: 900, spread: 3500, pause2: 1200, laser: 1800, pause3: 1400 },
+    phase2: { twinCannons: 4000, pause1: 650, spread: 3500, pause2: 900, laser: 1800, pause3: 1000 },
+    phase3: { twinCannons: 3600, pause1: 450, spread: 3200, pause2: 650, laser: 1800, pause3: 700 },
+  },
+};
+
+// Mission 5's mid-boss (src/entities/MidBoss.js + bossPatterns/MidBossPattern.js) --
+// a short, self-contained encounter partway through the pre-boss timeline,
+// distinct from the real end-of-mission Boss: half its scale, single attack
+// theme (front machine gun + wing missiles), and a hard lifetime timer. Not
+// destroyed in time -> it enrages (telegraphed radial nova) and self-destructs
+// instead of dying normally, so the encounter always resolves within
+// lifetimeMs even on a bad run.
+export const MID_BOSS = {
+  hp: 1600,
+  scoreValue: 1200,
+  hitboxRadius: Math.round(BOSS.hitboxRadius * 0.5),
+  scale: BOSS.scale * 1.5,
+  sweepSpeed: 110,
+  // Hard cap on how long the mid-boss stays -- at lifetimeMs it enrages
+  // regardless of remaining hp. enrageWarningMs is how long before that the
+  // on-screen warning appears (see MidBoss.update).
+  lifetimeMs: 24000,
+  enrageWarningMs: 3000,
+  // Front-mounted machine gun: fires straight down every fireIntervalMs for
+  // burstMs, then pauseMs of silence (during which the wing missiles fire --
+  // see MidBossPattern) before repeating.
+  machineGun: { fireIntervalMs: 90, burstMs: 3000, pauseMs: 2000, bulletSpeed: 260, damage: 6, scale: 0.4, texture: 'enemy_bullet_2' },
+  // Fired at the start of every pause: one from each wing, dead straight
+  // (turnRateDeg: 0 -- see EnemyMissile's cfg param).
+  wingMissileStraight: { hp: 18, speed: 220, turnRateDeg: 0, damage: 16, texture: 'enemy_missile_rocket', scale: 0.32, hitboxRadius: 9, lifetimeMs: 4500, blastRadius: 60 },
+  // Fired 1s into every pause: one from each wing, homing (same steer as the
+  // shared Missile Barrage tuning).
+  wingMissileHoming: { hp: 18, speed: 190, turnRateDeg: 70, damage: 16, texture: 'enemy_missile_rocket', scale: 0.32, hitboxRadius: 9, lifetimeMs: 4500, blastRadius: 60 },
+  // Timeout-only "enrage" burst -- a full radial ring, telegraphed by
+  // enrageWarningMs rather than the usual short BOSS.telegraphMs flash, then
+  // self-destructs with no score/drop (see MidBoss.enrage).
+  enrageNova: { bulletCount: 28, bulletSpeed: 230, damage: 14, scale: 0.5, texture: 'enemy_bullet_2' },
 };
 
 export const AUDIO = {
@@ -734,6 +793,28 @@ export const ENVIRONMENT_OBJECTS = {
     Medium: { scale: 0.25, driftSpeed: 18, alpha: 0.55 }, // 0.5 - 50%
     Big: { scale: 0.51, driftSpeed: 10, alpha: 0.45 }, // 0.85 - 40%
   },
+};
+
+// EXPERIMENTAL -- single endlessly-scrolling backdrop per mission (replaces
+// the one-shot SPACE_STATIONS.backgroundBySize drift-through above while
+// enabled: true). To revert, just flip enabled back to false -- no other
+// code needs to change, see GameScene.create/spawnEnvironmentObject.
+export const MISSION_BACKDROP = {
+  enabled: true,
+  scrollSpeed: 20, // px/sec, tilePositionY delta (texture space, unaffected by zoomX)
+  depth: -9, // above Starfield (-10, so hidden behind the opaque art) but below environment objects (-7/-5)
+  alpha: 1,
+  // Source art is a tall strip with content only in a centered horizontal
+  // band (transparent/empty margins left+right) -- zoomX crops those off by
+  // scaling the tile so only the middle 1/zoomX of the image's width fills
+  // the screen (GameScene.startEndlessBackdrop centers it automatically).
+  // Raise to crop tighter, lower toward 1 to show more of the margins.
+  zoomX: 0.90,
+  // When a mission has more than one backdrop image (see GameAssets/
+  // Background/Mission N), cycle through all of them in order rather than
+  // picking one at random and sticking with it the whole mission -- see
+  // GameScene.advanceEndlessBackdrop.
+  cycleMs: 25000,
 };
 
 // Purely decorative background structures, composed from several station/

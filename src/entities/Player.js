@@ -414,6 +414,21 @@ export default class Player {
     }
   }
 
+  // Guaranteed one-hit kill, bypassing diffCfg.damageTakenMult entirely --
+  // takeDamage(this.health) is NOT equivalent: Kids/Adaptive difficulty can
+  // have damageTakenMult < 1, which scales even a health-sized hit down to
+  // survivable chip damage (the touch reads as nothing happening, no death
+  // blast). Used by hazards meant to kill outright on contact regardless of
+  // difficulty, e.g. BossLaser's beam.
+  killInstantly() {
+    if (this.invulnerable || !this.alive) return;
+    this.health = 0;
+    this.audio.playerHurt();
+    this.juice.flashSprite(this.visual, 0xff4444);
+    this.scene.appEvents.emit('player-health-changed', this.health, this.maxHealth);
+    this.loseLife();
+  }
+
   loseLife() {
     this.lives -= 1;
     this.scene.appEvents.emit('player-lives-changed', this.lives);
