@@ -10,15 +10,6 @@ name: Deploy game to GitHub Pages
 on:
   push:
     branches: [mobile-port]
-    paths:
-      - index.html
-      - manifest.json
-      - service-worker.js
-      - icons/**
-      - src/**
-      - GameAssets/**
-      - .well-known/**
-      - .github/workflows/deploy-pages.yml
   workflow_dispatch:
 
 permissions:
