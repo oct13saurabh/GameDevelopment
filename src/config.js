@@ -15,10 +15,31 @@ export const DEFAULT_RESOLUTION_MODE = 'desktop';
 
 const RESOLUTION_STORAGE_KEY = 'spaceShooter.resolutionMode';
 
+// Phones/tablets: touch is the primary input (coarse pointer) AND the
+// viewport is narrow -- checking both avoids misfiring on a touch-capable
+// desktop monitor (coarse pointer, but wide) or a narrow-but-resized desktop
+// browser window (narrow, but fine/mouse pointer). UA sniffing alone is
+// unreliable (desktop browsers can spoof it, some tablets don't match it),
+// so it's only an OR'd fallback alongside the media-query check.
+function detectMobileDevice() {
+  try {
+    const uaMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent);
+    const coarsePointer = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    const narrowViewport = window.innerWidth <= 768;
+    return uaMobile || (coarsePointer && narrowViewport);
+  } catch {
+    return false;
+  }
+}
+
+// Only auto-detects when the player has never explicitly picked a mode
+// (OptionsScene's RESOLUTION row, via setResolutionMode) -- once they have,
+// that stored choice always wins over device detection.
 function readResolutionMode() {
   try {
     const stored = localStorage.getItem(RESOLUTION_STORAGE_KEY);
-    return RESOLUTION_PRESETS[stored] ? stored : DEFAULT_RESOLUTION_MODE;
+    if (RESOLUTION_PRESETS[stored]) return stored;
+    return detectMobileDevice() ? 'mobile' : DEFAULT_RESOLUTION_MODE;
   } catch {
     return DEFAULT_RESOLUTION_MODE;
   }
