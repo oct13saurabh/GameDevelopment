@@ -8,7 +8,7 @@
 // config and can't be changed on a live game instance.
 export const RESOLUTION_PRESETS = {
   desktop: { width: 640, height: 720, label: 'DESKTOP (640x720)' },
-  mobile: { width: 360, height: 800, label: 'MOBILE (360x800)' },
+  mobile: { width: 400, height: 720, label: 'MOBILE (400x720)' },
 };
 export const RESOLUTION_MODES = Object.keys(RESOLUTION_PRESETS);
 export const DEFAULT_RESOLUTION_MODE = 'desktop';

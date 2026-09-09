@@ -26,21 +26,18 @@ const AUTO_FIRE_DESCRIPTIONS = {
 };
 
 const TEXT_DIM = '#5a8a9a';
-// MOBILE's GAME_WIDTH (360) is narrower but its GAME_HEIGHT (800) has more
-// vertical room than DESKTOP's 720 -- IS_MOBILE below spends that extra
-// height on looser row spacing/margins instead of reusing DESKTOP's tighter
-// numbers, which read as cramped on the narrow screen (see report: rows
-// packed edge-to-edge with the label crowding the left arrow).
+// MOBILE and DESKTOP now share the same GAME_HEIGHT (720, see config.js) --
+// no extra vertical slack to spend on mobile-only row spacing, so
+// ROW_HEIGHT/ROW_GAP stay one shared value for both. IS_MOBILE only drives
+// the width-side adjustments below (narrower row/arrow-gap/fonts).
 const IS_MOBILE = GAME_WIDTH < 500;
 // Wider side margin (80 vs 60) so the panel doesn't run edge-to-edge on the
 // narrow MOBILE width, capped at 560 so DESKTOP is unaffected.
 const ROW_WIDTH = Math.min(560, GAME_WIDTH - 80);
-// Trimmed from the original 64/14 so all 5 rows (now including RESOLUTION)
-// plus the ship preview and BACK button still fit inside DESKTOP's tighter
-// GAME_HEIGHT (720); MOBILE gets its own looser numbers instead of reusing
-// these, since 800 has slack to spare.
-const ROW_HEIGHT = IS_MOBILE ? 62 : 56;
-const ROW_GAP = IS_MOBILE ? 16 : 8;
+// Trimmed from the original 64/14 so all 5 rows (including RESOLUTION) plus
+// the ship preview and BACK button fit inside the shared 720 GAME_HEIGHT.
+const ROW_HEIGHT = 56;
+const ROW_GAP = 8;
 
 // Flat settings page -- arrow-cycle rows (DIFFICULTY / GAMEPLAY / PLAYER
 // SHIP / INPUT / RESOLUTION): each shows "< VALUE >", tap/click an arrow (or
