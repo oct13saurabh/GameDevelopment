@@ -844,10 +844,10 @@ export const ENVIRONMENT_OBJECTS = {
     // it needs its own depth, above the backdrop's -6 (BackgroundStation
     // default) instead of the usual -7, so it reads as drifting in front of
     // the backdrop rather than behind it.
-    VerySmall: { scale: 0.084, driftSpeed: 32, alpha: 0.7, depth: -5 }, // 0.12 - 30%
-    Small: { scale: 0.125, driftSpeed: 26, alpha: 0.65 }, // 0.25 - 50%
-    Medium: { scale: 0.25, driftSpeed: 18, alpha: 0.55 }, // 0.5 - 50%
-    Big: { scale: 0.51, driftSpeed: 10, alpha: 0.45 }, // 0.85 - 40%
+    VerySmall: { scale: 0.084, driftSpeed: 32, alpha: 1, depth: -5 }, // 0.12 - 30%
+    Small: { scale: 0.125, driftSpeed: 26, alpha: 1 }, // 0.25 - 50%
+    Medium: { scale: 0.25, driftSpeed: 18, alpha: 1 }, // 0.5 - 50%
+    Big: { scale: 0.51, driftSpeed: 10, alpha: 1 }, // 0.85 - 40%
   },
 };
 
