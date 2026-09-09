@@ -29,6 +29,12 @@ import GameOverScene from './scenes/GameOverScene.js';
 // actual game size would desync the camera/world from that logic.)
 const RENDER_DPR = window.devicePixelRatio || 1;
 
+// index.html's #game-container canvas CSS reads these to lock the canvas's
+// CSS aspect ratio to whichever RESOLUTION_PRESETS mode is active (see
+// config.js) -- must be set before the canvas element is created below.
+document.documentElement.style.setProperty('--game-w', GAME_WIDTH);
+document.documentElement.style.setProperty('--game-h', GAME_HEIGHT);
+
 const config = {
   type: Phaser.AUTO,
   parent: 'game-container',

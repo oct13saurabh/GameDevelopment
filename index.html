@@ -31,11 +31,16 @@
       inset: 0;
     }
     /* Canvas fills 80% of the browser's height, width locked to the game's
-       640:720 aspect ratio so Phaser's FIT scale mode (see main.js) scales
-       it up cleanly without letterboxing distortion. */
+       aspect ratio (--game-w/--game-h, set from GAME_WIDTH/GAME_HEIGHT by
+       main.js before the Phaser game boots) so Phaser's FIT scale mode (see
+       main.js) scales it up cleanly without letterboxing distortion. */
+    :root {
+      --game-w: 640;
+      --game-h: 720;
+    }
     #game-container canvas {
-      height: min(100vh, calc(100vw * 720 / 640)) !important;
-      width: calc(min(100vh, calc(100vw * 720 / 640)) * 640 / 720) !important;
+      height: min(100vh, calc(100vw * var(--game-h) / var(--game-w))) !important;
+      width: calc(min(100vh, calc(100vw * var(--game-h) / var(--game-w))) * var(--game-w) / var(--game-h)) !important;
     }
     canvas {
       /* Ship/enemy/boss art is photoreal, not pixel art -- smooth (default)

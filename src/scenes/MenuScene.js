@@ -189,7 +189,10 @@ export default class MenuScene extends Phaser.Scene {
     const boxW = 120;
     const boxH = 70;
     const gap = 16;
-    const columns = Math.min(MISSION_NUMBERS.length, 3);
+    // 3 columns of 120px boxes overflows the narrower MOBILE resolution
+    // preset's GAME_WIDTH (see config.js) -- drop to 2 columns below that.
+    const maxColumns = GAME_WIDTH < 500 ? 2 : 3;
+    const columns = Math.min(MISSION_NUMBERS.length, maxColumns);
     const rows = Math.ceil(MISSION_NUMBERS.length / columns);
     const totalW = columns * boxW + (columns - 1) * gap;
     const startX = GAME_WIDTH / 2 - totalW / 2 + boxW / 2;

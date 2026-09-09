@@ -2,6 +2,7 @@ import {
   GAME_WIDTH, GAME_HEIGHT, SHIPS_FALLBACK,
   DIFFICULTY, DIFFICULTY_ORDER,
   INPUT_TYPES,
+  RESOLUTION_PRESETS, RESOLUTION_MODES, CURRENT_RESOLUTION_MODE, setResolutionMode,
 } from '../config.js';
 import Starfield from '../systems/Starfield.js';
 import { ACCENT_HEX, TEXT_HEX, drawBeveledPanel, drawCornerBrackets, buildVerticalMenu } from '../systems/UITheme.js';
@@ -25,13 +26,25 @@ const AUTO_FIRE_DESCRIPTIONS = {
 };
 
 const TEXT_DIM = '#5a8a9a';
-const ROW_WIDTH = 560;
-const ROW_HEIGHT = 64;
-const ROW_GAP = 14;
+// MOBILE's GAME_WIDTH (360) is narrower but its GAME_HEIGHT (800) has more
+// vertical room than DESKTOP's 720 -- IS_MOBILE below spends that extra
+// height on looser row spacing/margins instead of reusing DESKTOP's tighter
+// numbers, which read as cramped on the narrow screen (see report: rows
+// packed edge-to-edge with the label crowding the left arrow).
+const IS_MOBILE = GAME_WIDTH < 500;
+// Wider side margin (80 vs 60) so the panel doesn't run edge-to-edge on the
+// narrow MOBILE width, capped at 560 so DESKTOP is unaffected.
+const ROW_WIDTH = Math.min(560, GAME_WIDTH - 80);
+// Trimmed from the original 64/14 so all 5 rows (now including RESOLUTION)
+// plus the ship preview and BACK button still fit inside DESKTOP's tighter
+// GAME_HEIGHT (720); MOBILE gets its own looser numbers instead of reusing
+// these, since 800 has slack to spare.
+const ROW_HEIGHT = IS_MOBILE ? 62 : 56;
+const ROW_GAP = IS_MOBILE ? 16 : 8;
 
-// Flat settings page -- four arrow-cycle rows (DIFFICULTY / GAMEPLAY /
-// PLAYER SHIP / INPUT): each shows "< VALUE >", tap/click an arrow (or Left/
-// Right when a row has focus) to step through that category's values in
+// Flat settings page -- arrow-cycle rows (DIFFICULTY / GAMEPLAY / PLAYER
+// SHIP / INPUT / RESOLUTION): each shows "< VALUE >", tap/click an arrow (or
+// Left/Right when a row has focus) to step through that category's values in
 // place, wrapping at the ends. A short description sits under each row's
 // value; Player Ship instead gets a persistent big preview of the selected
 // ship below the whole stack.
@@ -107,6 +120,22 @@ export default class OptionsScene extends Phaser.Scene {
         selectedIndex: INPUT_TYPES.indexOf(prefs.inputType),
         onPick: (i) => setPref(this, 'inputType', INPUT_TYPES[i]),
       },
+      {
+        key: 'resolution',
+        label: 'RESOLUTION',
+        valueLabel: RESOLUTION_PRESETS[CURRENT_RESOLUTION_MODE].label,
+        description: 'Switches the game between desktop and mobile (taller, narrower) view. Reloads the page to apply.',
+        length: RESOLUTION_MODES.length,
+        selectedIndex: RESOLUTION_MODES.indexOf(CURRENT_RESOLUTION_MODE),
+        // Resolution is a load-time constant (baked into main.js's Phaser
+        // config), unlike every other row here -- can't just re-render this
+        // scene, the whole page has to reload to rebuild the game at the new
+        // size.
+        onPick: (i) => {
+          setResolutionMode(RESOLUTION_MODES[i]);
+          window.location.reload();
+        },
+      },
     ];
   }
 
@@ -135,33 +164,47 @@ export default class OptionsScene extends Phaser.Scene {
     // Value sits in a fixed-width centered slot flanked by the two arrows --
     // its position never depends on the value string's own width, so a long
     // value (KEYBOARD, AUTO FIRE: ON) can't grow into and overlap an arrow.
+    // Gap between the two arrows shrinks on the narrower MOBILE preset (see
+    // ROW_WIDTH above) so it still leaves the label room on the row's left --
+    // a fixed 190px (fine at the old always-640-wide layout) left almost no
+    // room for the label at MOBILE's width and the two visually collided.
     const rowRight = x + ROW_WIDTH / 2;
+    const arrowGap = IS_MOBILE ? 130 : Math.min(190, ROW_WIDTH - 120);
     const rightArrowX = rowRight - 24;
-    const leftArrowX = rowRight - 24 - 190;
+    const leftArrowX = rowRight - 24 - arrowGap;
     const valueX = (leftArrowX + rightArrowX) / 2;
+    const labelFontSize = IS_MOBILE ? '13px' : '15px';
+    const valueFontSize = IS_MOBILE ? '13px' : '15px';
+    const arrowFontSize = IS_MOBILE ? '15px' : '16px';
 
     const panel = drawBeveledPanel(this, x - ROW_WIDTH / 2, y - ROW_HEIGHT / 2, ROW_WIDTH, ROW_HEIGHT, { chamfer: 8 });
     const label = this.add.text(x - ROW_WIDTH / 2 + 20, y - 16, cat.label, {
-      fontFamily: 'Arial Black, Arial', fontSize: '15px', color: TEXT_HEX,
+      fontFamily: 'Arial Black, Arial', fontSize: labelFontSize, color: TEXT_HEX,
     }).setOrigin(0, 0.5);
 
     const value = this.add.text(valueX, y - 16, cat.valueLabel, {
-      fontFamily: 'Arial', fontSize: '15px', color: TEXT_DIM,
+      fontFamily: 'Arial', fontSize: valueFontSize, color: TEXT_DIM,
     }).setOrigin(0.5);
 
     const leftArrow = this.add.text(leftArrowX, y - 16, '◀', {
-      fontFamily: 'Arial Black, Arial', fontSize: '16px', color: ACCENT_HEX,
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      fontFamily: 'Arial Black, Arial', fontSize: arrowFontSize, color: ACCENT_HEX,
+    }).setOrigin(0.5);
     const rightArrow = this.add.text(rightArrowX, y - 16, '▶', {
-      fontFamily: 'Arial Black, Arial', fontSize: '16px', color: ACCENT_HEX,
-    }).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    leftArrow.on('pointerdown', () => this.cycle(cat, -1));
-    rightArrow.on('pointerdown', () => this.cycle(cat, 1));
+      fontFamily: 'Arial Black, Arial', fontSize: arrowFontSize, color: ACCENT_HEX,
+    }).setOrigin(0.5);
 
-    const objs = [panel, label, value, leftArrow, rightArrow];
+    const hitSize = 44;
+    const leftHit = this.add.rectangle(leftArrowX, y - 16, hitSize, hitSize, 0xffffff, 0.001)
+      .setInteractive({ useHandCursor: true });
+    const rightHit = this.add.rectangle(rightArrowX, y - 16, hitSize, hitSize, 0xffffff, 0.001)
+      .setInteractive({ useHandCursor: true });
+    leftHit.on('pointerdown', () => this.cycle(cat, -1));
+    rightHit.on('pointerdown', () => this.cycle(cat, 1));
+
+    const objs = [panel, label, value, leftArrow, rightArrow, leftHit, rightHit];
     if (cat.description) {
       const desc = this.add.text(x, y + 14, cat.description, {
-        fontFamily: 'Arial', fontSize: '11px', color: '#7aa8b8', align: 'center', wordWrap: { width: ROW_WIDTH - 40 },
+        fontFamily: 'Arial', fontSize: IS_MOBILE ? '10px' : '11px', color: '#7aa8b8', align: 'center', wordWrap: { width: ROW_WIDTH - 40 },
       }).setOrigin(0.5);
       objs.push(desc);
     }

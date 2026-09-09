@@ -147,24 +147,20 @@
     "environment": {
       "Default": [
         {
-          "file": "B-5_Small.png",
+          "file": "Blackhole_Small.png",
           "size": "Small"
         },
         {
-          "file": "Blackhole_Big.png",
-          "size": "Big"
-        },
-        {
-          "file": "P-1_Medium.png",
-          "size": "Medium"
-        },
-        {
-          "file": "P-2_Big.png",
-          "size": "Big"
-        },
-        {
-          "file": "P-3_Small.png",
+          "file": "P-1_Small.png",
           "size": "Small"
+        },
+        {
+          "file": "P-2_Small.png",
+          "size": "Small"
+        },
+        {
+          "file": "P-3_VerySmall.png",
+          "size": "VerySmall"
         },
         {
           "file": "P-4_VerySmall.png",

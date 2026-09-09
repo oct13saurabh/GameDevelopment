@@ -1,7 +1,42 @@
 // Central tuning values for Mission 1.
 
-export const GAME_WIDTH = 640;
-export const GAME_HEIGHT = 720;
+// Resolution presets for desktop and mobile views. GAME_WIDTH/GAME_HEIGHT
+// below (the single source of truth for world bounds/spawn math/HUD layout
+// everywhere else) are derived from whichever mode is stored -- switching
+// modes (see OptionsScene's RESOLUTION row) writes the new mode then reloads
+// the page, since these are load-time constants baked into main.js's Phaser
+// config and can't be changed on a live game instance.
+export const RESOLUTION_PRESETS = {
+  desktop: { width: 640, height: 720, label: 'DESKTOP (640x720)' },
+  mobile: { width: 360, height: 800, label: 'MOBILE (360x800)' },
+};
+export const RESOLUTION_MODES = Object.keys(RESOLUTION_PRESETS);
+export const DEFAULT_RESOLUTION_MODE = 'desktop';
+
+const RESOLUTION_STORAGE_KEY = 'spaceShooter.resolutionMode';
+
+function readResolutionMode() {
+  try {
+    const stored = localStorage.getItem(RESOLUTION_STORAGE_KEY);
+    return RESOLUTION_PRESETS[stored] ? stored : DEFAULT_RESOLUTION_MODE;
+  } catch {
+    return DEFAULT_RESOLUTION_MODE;
+  }
+}
+
+export function setResolutionMode(mode) {
+  if (!RESOLUTION_PRESETS[mode]) return;
+  try {
+    localStorage.setItem(RESOLUTION_STORAGE_KEY, mode);
+  } catch {
+    // Storage unavailable (private mode, etc) -- mode won't persist across
+    // reload, but the immediate reload still picks up DEFAULT_RESOLUTION_MODE.
+  }
+}
+
+export const CURRENT_RESOLUTION_MODE = readResolutionMode();
+export const GAME_WIDTH = RESOLUTION_PRESETS[CURRENT_RESOLUTION_MODE].width;
+export const GAME_HEIGHT = RESOLUTION_PRESETS[CURRENT_RESOLUTION_MODE].height;
 
 // Enemy ship art root (GameAssets/EnemyShip) is organized as:
 //   {EnemyPowerUpDrop|RandomShips}/{Mission N|Default}/...
