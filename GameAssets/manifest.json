@@ -107,6 +107,11 @@
       "name": "Solaris",
       "idle": "Solaris_02-1.png",
       "move": "Solaris_02-2.png"
+    },
+    {
+      "name": "Spider",
+      "idle": "Spider_06-1.png",
+      "move": "Spider_06-2.png"
     }
   ],
   "background": {
